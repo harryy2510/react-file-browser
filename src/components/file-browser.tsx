@@ -99,6 +99,7 @@ type PreviewState = {
 
 const FILE_BROWSER_DRAG_MIME = 'application/x.react-file-browser.paths'
 const SELECTED_ITEM_DOUBLE_CLICK_WINDOW_MS = 220
+const CLIPBOARD_NOTICE_DURATION_MS = 5000
 const CONTROL_MOTION =
 	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
 const SURFACE_MOTION =
@@ -285,6 +286,13 @@ export function FileBrowser({
 		},
 		[browser]
 	)
+	const copyItemPaths = useCallback(async (paths: string[]) => {
+		if (paths.length === 0) {
+			return
+		}
+		await navigator.clipboard.writeText(paths.join(', '))
+		setClipboardNotice(paths.length === 1 ? 'Copied path' : `Copied ${paths.length} paths`)
+	}, [])
 	const pasteClipboardInto = useCallback(
 		async (toDir: string) => {
 			const pastedCount = browser.clipboard?.paths.length ?? 0
@@ -390,6 +398,14 @@ export function FileBrowser({
 		document.addEventListener('click', close)
 		return () => document.removeEventListener('click', close)
 	}, [contextMenu])
+
+	useEffect(() => {
+		if (!clipboardNotice) {
+			return
+		}
+		const timer = setTimeout(() => setClipboardNotice(null), CLIPBOARD_NOTICE_DURATION_MS)
+		return () => clearTimeout(timer)
+	}, [clipboardNotice])
 
 	useEffect(() => {
 		for (const upload of transferSnapshot.uploads) {
@@ -599,7 +615,9 @@ export function FileBrowser({
 	function openItemContextMenu(item: FileNode, event: MouseEvent) {
 		event.preventDefault()
 		event.stopPropagation()
-		browser.selectOnly(item.path)
+		if (!browser.selectedPaths.includes(item.path)) {
+			browser.selectOnly(item.path)
+		}
 		setContextMenu({
 			target: 'item',
 			item,
@@ -610,7 +628,9 @@ export function FileBrowser({
 	}
 
 	function openItemTouchMenu(item: FileNode) {
-		browser.selectOnly(item.path)
+		if (!browser.selectedPaths.includes(item.path)) {
+			browser.selectOnly(item.path)
+		}
 		setContextMenu({
 			target: 'item',
 			item,
@@ -1141,7 +1161,13 @@ export function FileBrowser({
 			</div>
 
 			{showDetailsPanel ? (
-				<DetailsPanel item={selected} onDownload={() => (selected ? void downloadItem(selected) : undefined)} />
+				<DetailsPanel
+					item={selected}
+					onCopyPath={() => void copyItemPaths(browser.selectedPaths)}
+					onDownload={() => void downloadSelection()}
+					selectedCount={browser.selectedItems.length}
+					totalBytes={totalSelectedBytes}
+				/>
 			) : null}
 
 			{contextMenu ? (
@@ -1157,6 +1183,9 @@ export function FileBrowser({
 						setNewFolderOpen(true)
 					}}
 					onCopy={() => copySelectedItems()}
+					onCopyPath={(item) =>
+						void copyItemPaths(browser.selectedPaths.includes(item.path) ? browser.selectedPaths : [item.path])
+					}
 					onCut={() => cutSelectedItems()}
 					onPaste={() => void pasteClipboardInto(browser.currentPath)}
 					onRename={openRenameDialog}
@@ -2018,6 +2047,7 @@ function ContextMenu({
 	onDelete,
 	onDownload,
 	onCopy,
+	onCopyPath,
 	onCut,
 	onMove,
 	onNewFolder,
@@ -2032,6 +2062,7 @@ function ContextMenu({
 	onDelete: () => void
 	onDownload: () => void
 	onCopy: () => void
+	onCopyPath: (item: FileNode) => void
 	onCut: () => void
 	onMove: () => void
 	onNewFolder: () => void
@@ -2072,6 +2103,11 @@ function ContextMenu({
 			) : null}
 			{isItemMenu ? (
 				<>
+					<ContextMenuButton onClick={() => run(() => onCopyPath(menu.item))}>
+						{browser.selectedPaths.includes(menu.item.path) && browser.selectedPaths.length > 1
+							? 'Copy paths'
+							: 'Copy path'}
+					</ContextMenuButton>
 					<ContextMenuButton onClick={() => run(onDownload)}>Download</ContextMenuButton>
 					{!readOnly ? (
 						<ContextMenuButton
@@ -2462,7 +2498,19 @@ function getVisibleBreadcrumbs(crumbs: BreadcrumbCrumb[]): VisibleBreadcrumbCrum
 	]
 }
 
-function DetailsPanel({ item, onDownload }: { item: FileNode | null; onDownload: () => void }) {
+function DetailsPanel({
+	item,
+	onCopyPath,
+	onDownload,
+	selectedCount,
+	totalBytes
+}: {
+	item: FileNode | null
+	onCopyPath: () => void
+	onDownload: () => void
+	selectedCount: number
+	totalBytes: number
+}) {
 	if (!item) {
 		return (
 			<aside
@@ -2477,6 +2525,44 @@ function DetailsPanel({ item, onDownload }: { item: FileNode | null; onDownload:
 					</div>
 					<h2 className="mt-4 text-[14px] font-semibold">No item selected</h2>
 				</div>
+			</aside>
+		)
+	}
+
+	if (selectedCount > 1) {
+		return (
+			<aside
+				aria-label="Details"
+				className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block ${SURFACE_MOTION}`}
+			>
+				<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
+					<CopyIcon className="size-12 text-[var(--fb-muted)]" />
+				</div>
+				<h2 className="mt-4 text-[14px] font-semibold">{formatItemCount(selectedCount)} selected</h2>
+				<dl className="mt-3 space-y-2 text-[12px]">
+					<div>
+						<dt className="text-[var(--fb-muted)]">Total size</dt>
+						<dd className="font-medium">{formatBytes(totalBytes)}</dd>
+					</div>
+				</dl>
+				<button
+					aria-label={`Download ${formatItemCount(selectedCount)}`}
+					className={`${commandButton(false)} mt-4 w-full justify-center`}
+					onClick={onDownload}
+					type="button"
+				>
+					<Download className="size-4" />
+					Download
+				</button>
+				<button
+					aria-label={`Copy ${formatItemCount(selectedCount)} paths`}
+					className={`${commandButton(false)} mt-2 w-full justify-center`}
+					onClick={onCopyPath}
+					type="button"
+				>
+					<CopyIcon className="size-4" />
+					Copy paths
+				</button>
 			</aside>
 		)
 	}
@@ -2518,6 +2604,15 @@ function DetailsPanel({ item, onDownload }: { item: FileNode | null; onDownload:
 			>
 				<Download className="size-4" />
 				Download
+			</button>
+			<button
+				aria-label={`Copy path of ${item.name}`}
+				className={`${commandButton(false)} mt-2 w-full justify-center`}
+				onClick={onCopyPath}
+				type="button"
+			>
+				<CopyIcon className="size-4" />
+				Copy path
 			</button>
 		</aside>
 	)

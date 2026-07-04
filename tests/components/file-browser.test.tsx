@@ -727,6 +727,126 @@ describe('FileBrowser', () => {
 		expect(within(menu).getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument()
 	})
 
+	test('copies an item path from the context menu', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.pointer({
+			keys: '[MouseRight]',
+			target: screen.getByRole('button', { name: 'hero-banner.jpg' })
+		})
+		await user.click(screen.getByRole('menuitem', { name: 'Copy path' }))
+
+		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg')
+		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied path')
+	})
+
+	test('keeps the multi-selection when right-clicking a selected item', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByText('hero-banner.jpg'))
+		await user.keyboard('{Meta>}')
+		await user.click(screen.getByText('quarterly-report.pdf'))
+		await user.keyboard('{/Meta}')
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('2 selected')
+
+		await user.pointer({
+			keys: '[MouseRight]',
+			target: screen.getByRole('button', { name: 'quarterly-report.pdf' })
+		})
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('2 selected')
+
+		await user.click(screen.getByRole('menuitem', { name: 'Copy paths' }))
+
+		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg, /quarterly-report.pdf')
+		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 2 paths')
+	})
+
+	test('collapses the selection when right-clicking an unselected item', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByText('hero-banner.jpg'))
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('1 selected')
+
+		await user.pointer({
+			keys: '[MouseRight]',
+			target: screen.getByRole('button', { name: 'quarterly-report.pdf' })
+		})
+
+		await user.click(screen.getByRole('menuitem', { name: 'Copy path' }))
+		expect(await navigator.clipboard.readText()).toBe('/quarterly-report.pdf')
+	})
+
+	test('copies the selected item path from the details panel', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByText('hero-banner.jpg'))
+		await user.click(screen.getByRole('button', { name: 'Copy path of hero-banner.jpg' }))
+
+		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg')
+		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied path')
+	})
+
+	test('shows a multi-selection summary in the details panel', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByText('hero-banner.jpg'))
+		await user.keyboard('{Meta>}')
+		await user.click(screen.getByText('quarterly-report.pdf'))
+		await user.keyboard('{/Meta}')
+
+		const details = screen.getByRole('complementary', { name: 'Details' })
+		expect(details).toHaveTextContent('2 items selected')
+		expect(details).toHaveTextContent('Total size')
+
+		await user.click(within(details).getByRole('button', { name: 'Copy 2 items paths' }))
+
+		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg, /quarterly-report.pdf')
+		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 2 paths')
+	})
+
+	test('clears the clipboard notice after five seconds', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByText('hero-banner.jpg'))
+
+		vi.useFakeTimers()
+		try {
+			fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+			expect(screen.getByRole('status', { name: 'Clipboard status' })).toBeInTheDocument()
+
+			act(() => {
+				vi.advanceTimersByTime(5000)
+			})
+			expect(screen.queryByRole('status', { name: 'Clipboard status' })).not.toBeInTheDocument()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	test('opens item actions as a bottom sheet after mobile long press', async () => {
 		const adapter = await adapterWithFiles()
 

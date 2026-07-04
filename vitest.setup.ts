@@ -6,6 +6,24 @@ if (typeof window !== 'undefined') {
 		configurable: true,
 		value: storage
 	})
+
+	Object.defineProperty(window.navigator, 'clipboard', {
+		configurable: true,
+		value: createMemoryClipboard()
+	})
+}
+
+function createMemoryClipboard(): { readText: () => Promise<string>; writeText: (text: string) => Promise<void> } {
+	let text = ''
+	return {
+		readText() {
+			return Promise.resolve(text)
+		},
+		writeText(next: string) {
+			text = next
+			return Promise.resolve()
+		}
+	}
 }
 
 function createMemoryStorage(): Storage {
