@@ -13,6 +13,10 @@ import type {
 } from './transfer-manager'
 
 const TransferContext = createContext<TransferManager | null>(null)
+const WIDGET_CONTROL_MOTION =
+	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
+const WIDGET_SURFACE_MOTION =
+	'transition-[background-color,border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none'
 
 export type FileBrowserProviderProps = PropsWithChildren<{
 	manager?: TransferManager
@@ -138,7 +142,7 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 	const content = (
 		<aside
 			aria-label="Transfers"
-			className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-3 text-[12px] text-[var(--fb-text)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)]"
+			className={`fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-3 text-[12px] text-[var(--fb-text)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)] ${WIDGET_SURFACE_MOTION}`}
 		>
 			<div className="mb-2 flex items-center justify-between gap-2">
 				<div className="font-semibold">Transfers</div>
@@ -157,7 +161,7 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 							<div className="flex items-center justify-between gap-2">
 								<a
 									aria-label="Open prepared download"
-									className="inline-flex min-w-0 items-center gap-1 rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)]"
+									className={`inline-flex min-w-0 items-center gap-1 rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)] ${WIDGET_CONTROL_MOTION}`}
 									download
 									href={download.url}
 									onClick={() => manager.dismissDownload(download.id)}
@@ -209,7 +213,7 @@ type ActiveUploadGroup = {
 
 function UploadGroupCard({ group, manager }: { group: ActiveUploadGroup; manager: TransferManager }) {
 	return (
-		<div>
+		<div className={WIDGET_SURFACE_MOTION}>
 			<div className="flex items-center justify-between gap-2">
 				<div className="min-w-0">
 					<div className="truncate font-semibold">Uploading {group.group.name}</div>
@@ -229,7 +233,7 @@ function UploadGroupCard({ group, manager }: { group: ActiveUploadGroup; manager
 					<X aria-hidden="true" className="size-3.5" />
 				</button>
 			</div>
-			<div className="mt-2 flex flex-col gap-1.5 border-l border-[var(--fb-border)] pl-3">
+			<div className={`mt-2 flex flex-col gap-1.5 border-l border-[var(--fb-border)] pl-3 ${WIDGET_SURFACE_MOTION}`}>
 				{group.activeUploads.map((upload) => (
 					<UploadTransferRow compact key={upload.id} manager={manager} upload={upload} />
 				))}
@@ -248,7 +252,7 @@ function UploadTransferRow({
 	upload: UploadTransfer
 }) {
 	return (
-		<div>
+		<div className={WIDGET_SURFACE_MOTION}>
 			<div className="flex items-center justify-between gap-2">
 				<div className="min-w-0">
 					<span className="block truncate font-medium">{upload.name}</span>
@@ -288,9 +292,13 @@ function UploadTransferRow({
 					</button>
 				</div>
 			</div>
-			<div className={`h-1.5 overflow-hidden rounded-full bg-[var(--fb-surface-2)] ${compact ? 'mt-1' : 'mt-1.5'}`}>
+			<div
+				className={`h-1.5 overflow-hidden rounded-full bg-[var(--fb-surface-2)] ${WIDGET_SURFACE_MOTION} ${
+					compact ? 'mt-1' : 'mt-1.5'
+				}`}
+			>
 				<div
-					className="h-full rounded-full bg-[var(--fb-accent)]"
+					className="h-full rounded-full bg-[var(--fb-accent)] transition-[width] duration-300 ease-out motion-reduce:transition-none"
 					style={{
 						width: `${Math.min(100, upload.totalBytes ? (upload.loadedBytes / upload.totalBytes) * 100 : 0)}%`
 					}}
@@ -313,10 +321,12 @@ function ResumeUploadsPrompt({
 		<div
 			aria-label="Resume uploads"
 			aria-modal="true"
-			className="fixed inset-0 z-50 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 text-[13px] text-[var(--fb-text)]"
+			className={`fixed inset-0 z-50 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 text-[13px] text-[var(--fb-text)] ${WIDGET_SURFACE_MOTION}`}
 			role="dialog"
 		>
-			<div className="w-[min(380px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]">
+			<div
+				className={`w-[min(380px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${WIDGET_SURFACE_MOTION}`}
+			>
 				<h2 className="m-0 text-[14px] font-semibold">Resume uploads</h2>
 				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
 					Resume {count} upload{count === 1 ? '?' : 's?'}
@@ -338,15 +348,15 @@ function ResumeUploadsPrompt({
 const fallbackTransferManager = new TransferManager()
 
 function widgetIconButton() {
-	return 'grid size-7 place-items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] outline-none transition hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+	return `grid size-7 place-items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_CONTROL_MOTION}`
 }
 
 function widgetTextButton() {
-	return 'inline-flex h-7 items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[11px] font-medium text-[var(--fb-text)] outline-none transition hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+	return `inline-flex h-7 items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[11px] font-medium text-[var(--fb-text)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_CONTROL_MOTION}`
 }
 
 function widgetPrimaryButton() {
-	return 'inline-flex h-7 items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2 text-[11px] font-semibold text-[var(--fb-surface)] outline-none transition hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+	return `inline-flex h-7 items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2 text-[11px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_CONTROL_MOTION}`
 }
 
 function isVisibleUpload(upload: UploadTransfer): boolean {

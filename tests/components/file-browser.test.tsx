@@ -114,6 +114,19 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('No item selected')
 	})
 
+	test('applies subtle motion to core browser chrome', async () => {
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('duration-150')
+		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('motion-reduce:transition-none')
+		expect(screen.getByText('hero-banner.jpg').closest('article')?.className).toContain('duration-200')
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' }).className).toContain('duration-200')
+		expect(screen.getByRole('complementary', { name: 'Details' }).className).toContain('duration-200')
+	})
+
 	test('toggles off a selected item with a plain click', async () => {
 		const adapter = await adapterWithFiles()
 

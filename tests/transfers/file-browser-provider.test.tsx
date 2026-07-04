@@ -268,6 +268,41 @@ describe('FileBrowserProvider', () => {
 		)
 	})
 
+	test('floating widget uses subtle motion affordances', async () => {
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload: vi.fn(),
+			bulkDownloadUrl: vi.fn(() =>
+				Promise.resolve({
+					url: 'https://example.test/download.zip',
+					expiresAt: '2026-07-04T02:00:00.000Z'
+				})
+			)
+		}
+		const manager = new TransferManager({ idFactory: () => 'download-1' })
+
+		await manager.prepareBulkDownload({
+			adapter,
+			paths: ['/demo.bin'],
+			selectedBytes: 10
+		})
+
+		render(
+			<FileBrowserProvider manager={manager}>
+				<div />
+			</FileBrowserProvider>
+		)
+
+		expect(screen.getByRole('complementary', { name: 'Transfers' }).className).toContain('duration-200')
+		expect(screen.getByRole('link', { name: 'Open prepared download' }).className).toContain('duration-150')
+		expect(screen.getByRole('button', { name: 'Dismiss download' }).className).toContain(
+			'motion-reduce:transition-none'
+		)
+	})
+
 	test('floating widget dismisses a ready download after opening it', async () => {
 		const user = userEvent.setup()
 		const adapter: FileBrowserAdapter = {

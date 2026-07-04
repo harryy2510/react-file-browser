@@ -99,6 +99,10 @@ type PreviewState = {
 
 const FILE_BROWSER_DRAG_MIME = 'application/x.react-file-browser.paths'
 const SELECTED_ITEM_DOUBLE_CLICK_WINDOW_MS = 220
+const CONTROL_MOTION =
+	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
+const SURFACE_MOTION =
+	'transition-[background-color,border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none'
 
 export function FileBrowser({
 	adapter,
@@ -876,7 +880,7 @@ export function FileBrowser({
 
 	return (
 		<section
-			className="flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[13px] text-[var(--fb-text)]"
+			className={`flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[13px] text-[var(--fb-text)] ${SURFACE_MOTION}`}
 			data-fb-density={density}
 			ref={rootRef}
 			onDragEnter={(event) => {
@@ -920,12 +924,14 @@ export function FileBrowser({
 				})}
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex min-h-[52px] flex-wrap items-center gap-2 border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-3 py-2">
+				<header
+					className={`flex min-h-[52px] flex-wrap items-center gap-2 border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-3 py-2 ${SURFACE_MOTION}`}
+				>
 					<Breadcrumbs path={browser.currentPath} onNavigate={browser.navigate} />
 					{clipboardNotice ? (
 						<span
 							aria-label="Clipboard status"
-							className="rounded-[calc(var(--fb-radius)-4px)] bg-[var(--fb-accent-soft)] px-2 py-1 text-[12px] font-medium text-[var(--fb-accent)]"
+							className={`rounded-[calc(var(--fb-radius)-4px)] bg-[var(--fb-accent-soft)] px-2 py-1 text-[12px] font-medium text-[var(--fb-accent)] ${CONTROL_MOTION}`}
 							role="status"
 						>
 							{clipboardNotice}
@@ -939,7 +945,7 @@ export function FileBrowser({
 							/>
 							<input
 								aria-label="Search files"
-								className="h-8 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-7 pr-2 text-[12px] text-[var(--fb-text)] outline-none transition focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]"
+								className={`h-8 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-7 pr-2 text-[12px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 								onChange={(event) => browser.setSearchQuery(event.target.value)}
 								placeholder="Search"
 								type="search"
@@ -1043,7 +1049,7 @@ export function FileBrowser({
 				) : null}
 
 				<div
-					className="relative min-h-0 flex-1 overflow-auto bg-[var(--fb-bg)] p-3"
+					className={`relative min-h-0 flex-1 overflow-auto bg-[var(--fb-bg)] p-3 ${SURFACE_MOTION}`}
 					onClick={clearSelectionFromEmptySurface}
 					onContextMenu={openEmptyContextMenu}
 				>
@@ -1105,20 +1111,24 @@ export function FileBrowser({
 						/>
 					)}
 					{dropActive ? (
-						<div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-[var(--fb-radius)] border-2 border-dashed border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[13px] font-semibold text-[var(--fb-accent)]">
+						<div
+							className={`pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-[var(--fb-radius)] border-2 border-dashed border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[13px] font-semibold text-[var(--fb-accent)] ${SURFACE_MOTION}`}
+						>
 							Drop files to upload
 						</div>
 					) : null}
 				</div>
 
-				<footer className="flex h-9 items-center justify-between border-t border-[var(--fb-border)] px-3 text-[11px] text-[var(--fb-muted)]">
+				<footer
+					className={`flex h-9 items-center justify-between border-t border-[var(--fb-border)] px-3 text-[11px] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
+				>
 					<span>
 						{browser.filteredItems.length} items
 						{browser.selectedPaths.length ? ` · ${browser.selectedPaths.length} selected` : ''}
 					</span>
 					{browser.hasMore ? (
 						<button
-							className="rounded-[calc(var(--fb-radius)-4px)] px-2 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)]"
+							className={`rounded-[calc(var(--fb-radius)-4px)] px-2 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 							onClick={() => void browser.loadMore()}
 							type="button"
 						>
@@ -1159,11 +1169,11 @@ export function FileBrowser({
 				<div
 					aria-label="New folder"
 					aria-modal="true"
-					className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+					className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 					role="dialog"
 				>
 					<form
-						className="w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]"
+						className={`w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void createFolder()
@@ -1175,7 +1185,7 @@ export function FileBrowser({
 							<input
 								aria-label="Folder name"
 								autoFocus
-								className="mt-1 h-9 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[13px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]"
+								className={`mt-1 h-9 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[13px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 								onChange={(event) => {
 									setNewFolderName(event.target.value)
 									setNewFolderError(null)
@@ -1185,7 +1195,7 @@ export function FileBrowser({
 						</label>
 						{newFolderError ? (
 							<div
-								className="mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)]"
+								className={`mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
 								role="alert"
 							>
 								{newFolderError}
@@ -1214,11 +1224,11 @@ export function FileBrowser({
 				<div
 					aria-label="Rename item"
 					aria-modal="true"
-					className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+					className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 					role="dialog"
 				>
 					<form
-						className="w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]"
+						className={`w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void renameSelectedItem()
@@ -1230,7 +1240,7 @@ export function FileBrowser({
 							<input
 								aria-label="New name"
 								autoFocus
-								className="mt-1 h-9 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[13px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]"
+								className={`mt-1 h-9 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[13px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 								onChange={(event) => {
 									setRenameValue(event.target.value)
 									setRenameError(null)
@@ -1240,7 +1250,7 @@ export function FileBrowser({
 						</label>
 						{renameError ? (
 							<div
-								className="mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)]"
+								className={`mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
 								role="alert"
 							>
 								{renameError}
@@ -1270,11 +1280,11 @@ export function FileBrowser({
 				<div
 					aria-label="Delete selected items"
 					aria-modal="true"
-					className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+					className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 					role="dialog"
 				>
 					<form
-						className="w-[min(400px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]"
+						className={`w-[min(400px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void deleteSelectedItems()
@@ -1282,7 +1292,9 @@ export function FileBrowser({
 					>
 						<h2 className="m-0 text-[14px] font-semibold">Delete selected items</h2>
 						<p className="mt-2 text-[12px] text-[var(--fb-muted)]">This removes the selected entries from storage.</p>
-						<ul className="mt-3 max-h-32 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px]">
+						<ul
+							className={`mt-3 max-h-32 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
+						>
 							{browser.selectedItems.map((item) => (
 								<li className="truncate py-1" key={item.path}>
 									{item.name}
@@ -1305,11 +1317,11 @@ export function FileBrowser({
 				<div
 					aria-label="Move selected items"
 					aria-modal="true"
-					className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+					className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 					role="dialog"
 				>
 					<form
-						className="w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]"
+						className={`w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void moveSelectedItems()
@@ -1358,11 +1370,15 @@ export function FileBrowser({
 				<div
 					aria-label={`Preview ${preview.item.name}`}
 					aria-modal="true"
-					className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_35%,transparent)] p-4"
+					className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_35%,transparent)] p-4 ${SURFACE_MOTION}`}
 					role="dialog"
 				>
-					<div className="w-[min(720px,100%)] overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] shadow-[0_22px_70px_color-mix(in_oklch,var(--fb-text)_24%,transparent)]">
-						<div className="flex h-12 items-center justify-between border-b border-[var(--fb-border)] px-4">
+					<div
+						className={`w-[min(720px,100%)] overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] shadow-[0_22px_70px_color-mix(in_oklch,var(--fb-text)_24%,transparent)] ${SURFACE_MOTION}`}
+					>
+						<div
+							className={`flex h-12 items-center justify-between border-b border-[var(--fb-border)] px-4 ${SURFACE_MOTION}`}
+						>
 							<div className="min-w-0 truncate font-semibold">Preview {preview.item.name}</div>
 							<div className="flex items-center gap-1">
 								<button
@@ -1388,12 +1404,12 @@ export function FileBrowser({
 								</button>
 							</div>
 						</div>
-						<div className="grid min-h-[260px] place-items-center bg-[var(--fb-bg)] p-8">
+						<div className={`grid min-h-[260px] place-items-center bg-[var(--fb-bg)] p-8 ${SURFACE_MOTION}`}>
 							{(preview.item.mimeType?.startsWith('image/') && preview.url) || preview.item.thumbnailUrl ? (
 								<div className="text-center">
 									<img
 										alt={preview.item.name}
-										className="max-h-[420px] max-w-full rounded-[calc(var(--fb-radius)-2px)] object-contain"
+										className={`max-h-[420px] max-w-full rounded-[calc(var(--fb-radius)-2px)] object-contain ${SURFACE_MOTION}`}
 										src={preview.url ?? preview.item.thumbnailUrl}
 									/>
 									<PreviewOriginalLink preview={preview} />
@@ -1767,7 +1783,7 @@ function FileCard({
 			data-fb-path={item.path}
 			data-fb-selectable="true"
 			draggable={canMove}
-			className={`group relative flex min-h-[132px] cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-2 outline-none transition ${
+			className={`group relative flex min-h-[132px] cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-2 outline-none hover:shadow-[0_8px_22px_color-mix(in_oklch,var(--fb-text)_8%,transparent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${SURFACE_MOTION} ${
 				selected
 					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)]'
 					: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)]'
@@ -1787,7 +1803,7 @@ function FileCard({
 		>
 			<span
 				aria-hidden="true"
-				className={`absolute right-2 top-2 grid size-4 place-items-center rounded border text-[10px] ${
+				className={`absolute right-2 top-2 grid size-4 place-items-center rounded border text-[10px] ${CONTROL_MOTION} ${
 					selected
 						? 'border-[var(--fb-accent)] bg-[var(--fb-accent)] text-[var(--fb-surface)]'
 						: 'border-[var(--fb-border)] bg-[var(--fb-surface)] opacity-0 group-hover:opacity-100'
@@ -1795,7 +1811,9 @@ function FileCard({
 			>
 				{selected ? '✓' : ''}
 			</span>
-			<div className="grid h-16 place-items-center rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)]">
+			<div
+				className={`grid h-16 place-items-center rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)] group-hover:bg-[var(--fb-bg)] ${CONTROL_MOTION}`}
+			>
 				{item.kind === 'folder' ? (
 					<Folder aria-hidden="true" className="size-9 text-[var(--fb-folder)]" />
 				) : (
@@ -1814,7 +1832,7 @@ function FileCard({
 				/>
 			) : (
 				<button
-					className="mt-2 min-w-0 truncate text-left text-[12.5px] font-semibold text-[var(--fb-text)] outline-none"
+					className={`mt-2 min-w-0 truncate text-left text-[12.5px] font-semibold text-[var(--fb-text)] outline-none ${CONTROL_MOTION}`}
 					onClick={(event) => {
 						event.stopPropagation()
 						onSelect(event)
@@ -1853,7 +1871,7 @@ function InlineRenameInput({
 			<input
 				aria-label={`Rename ${label || item.name}`}
 				autoFocus
-				className="mt-2 min-w-0 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-surface)] px-1.5 py-1 text-[12.5px] font-semibold text-[var(--fb-text)] outline-none ring-2 ring-[var(--fb-accent-soft)]"
+				className={`mt-2 min-w-0 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-surface)] px-1.5 py-1 text-[12.5px] font-semibold text-[var(--fb-text)] outline-none ring-2 ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 				onBlur={onCommit}
 				onChange={(event) => onChange(event.target.value)}
 				onClick={(event) => event.stopPropagation()}
@@ -1872,7 +1890,7 @@ function InlineRenameInput({
 			/>
 			{error ? (
 				<div
-					className="mt-1 rounded-[calc(var(--fb-radius)-5px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-1.5 py-1 text-[11px] text-[var(--fb-danger)]"
+					className={`mt-1 rounded-[calc(var(--fb-radius)-5px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-1.5 py-1 text-[11px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
 					role="alert"
 				>
 					{error}
@@ -1920,7 +1938,7 @@ function FileTable({
 	return (
 		<table
 			aria-label="Files"
-			className="w-full border-separate border-spacing-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-left"
+			className={`w-full border-separate border-spacing-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-left ${SURFACE_MOTION}`}
 		>
 			<thead className="text-[11px] text-[var(--fb-muted)]">
 				<tr>
@@ -1936,8 +1954,8 @@ function FileTable({
 						data-fb-path={item.path}
 						className={
 							selectedPaths.includes(item.path)
-								? 'bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
-								: 'outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+								? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+								: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 						}
 						draggable={canMove}
 						key={item.path}
@@ -1968,7 +1986,7 @@ function FileTable({
 									/>
 								) : (
 									<button
-										className="truncate font-medium"
+										className={`truncate font-medium ${CONTROL_MOTION}`}
 										onClick={(event) => {
 											event.stopPropagation()
 											onSelectItem(item.path, event)
@@ -2033,7 +2051,7 @@ function ContextMenu({
 	return (
 		<div
 			aria-label={isItemMenu ? 'Item actions' : 'Folder actions'}
-			className={`fixed z-50 rounded-[calc(var(--fb-radius)-2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-1 text-[12px] text-[var(--fb-text)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)] ${
+			className={`fixed z-50 rounded-[calc(var(--fb-radius)-2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-1 text-[12px] text-[var(--fb-text)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)] ${SURFACE_MOTION} ${
 				isSheet ? 'inset-x-3 bottom-3 max-h-[80vh] overflow-auto' : 'min-w-40'
 			}`}
 			data-fb-menu={isSheet ? 'sheet' : 'context'}
@@ -2089,7 +2107,7 @@ function ContextMenu({
 function ContextMenuButton({ children, danger, onClick }: { children: string; danger?: boolean; onClick: () => void }) {
 	return (
 		<button
-			className={`flex h-8 w-full items-center rounded-[calc(var(--fb-radius)-4px)] px-2 text-left font-medium outline-none hover:bg-[var(--fb-bg)] focus:bg-[var(--fb-bg)] ${
+			className={`flex h-8 w-full items-center rounded-[calc(var(--fb-radius)-4px)] px-2 text-left font-medium outline-none hover:bg-[var(--fb-bg)] focus:bg-[var(--fb-bg)] ${CONTROL_MOTION} ${
 				danger ? 'text-[var(--fb-danger)]' : ''
 			}`}
 			onClick={onClick}
@@ -2124,15 +2142,19 @@ function UploadConflictDialog({
 		<div
 			aria-label="File conflict"
 			aria-modal="true"
-			className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+			className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 			role="dialog"
 		>
-			<div className="w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]">
+			<div
+				className={`w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+			>
 				<h2 className="m-0 text-[14px] font-semibold">File conflict</h2>
 				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
 					{candidate.relativePath} already exists in this folder.
 				</p>
-				<div className="mt-3 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px]">
+				<div
+					className={`mt-3 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
+				>
 					Conflict {conflictIndex} of {queue.conflictPaths.length}
 				</div>
 				<label className="mt-3 flex items-center gap-2 text-[12px] font-medium text-[var(--fb-muted)]">
@@ -2165,15 +2187,19 @@ function BulkFailureDialog({ error, onClose }: { error: FileBrowserBulkActionErr
 		<div
 			aria-label="Partial bulk failure"
 			aria-modal="true"
-			className="fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4"
+			className={`fixed inset-0 z-40 grid place-items-center bg-[color-mix(in_oklch,var(--fb-text)_20%,transparent)] p-4 ${SURFACE_MOTION}`}
 			role="dialog"
 		>
-			<div className="w-[min(440px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)]">
+			<div
+				className={`w-[min(440px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+			>
 				<h2 className="m-0 text-[14px] font-semibold">Partial bulk failure</h2>
 				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
 					{completedCount} of {error.totalCount} completed
 				</p>
-				<ul className="mt-3 max-h-40 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px]">
+				<ul
+					className={`mt-3 max-h-40 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
+				>
 					{error.failures.map((failure) => (
 						<li className="py-1" key={failure.path}>
 							<div className="truncate font-medium">
@@ -2209,7 +2235,9 @@ function MoveDestinationPicker({
 	status: MoveDestinationStatus
 }) {
 	return (
-		<div className="mt-3 max-h-64 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2">
+		<div
+			className={`mt-3 max-h-64 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 ${SURFACE_MOTION}`}
+		>
 			<MoveDestinationButton
 				active={selectedPath === currentPath}
 				label="Current folder"
@@ -2256,7 +2284,7 @@ function MoveDestinationButton({
 	return (
 		<button
 			aria-label={`Move destination ${path}`}
-			className={`mt-1 flex h-8 w-full items-center gap-2 rounded-[calc(var(--fb-radius)-4px)] px-2 text-left text-[12px] font-medium ${
+			className={`mt-1 flex h-8 w-full items-center gap-2 rounded-[calc(var(--fb-radius)-4px)] px-2 text-left text-[12px] font-medium ${CONTROL_MOTION} ${
 				active ? 'bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]' : 'hover:bg-[var(--fb-surface)]'
 			}`}
 			onClick={onClick}
@@ -2307,7 +2335,7 @@ function ActionBar({
 	return (
 		<div
 			aria-label="Selection actions"
-			className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--fb-border)] px-3 py-1.5 ${
+			className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--fb-border)] px-3 py-1.5 ${SURFACE_MOTION} ${
 				hasSelection ? 'bg-[var(--fb-accent-soft)]' : 'bg-[var(--fb-surface)]'
 			}`}
 			role="toolbar"
@@ -2383,13 +2411,13 @@ function Breadcrumbs({ path, onNavigate }: { path: string; onNavigate: (path: st
 					{crumb.kind === 'collapsed' ? (
 						<span
 							aria-label="Collapsed breadcrumb"
-							className="rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 text-[12px] font-semibold text-[var(--fb-muted)]"
+							className={`rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 text-[12px] font-semibold text-[var(--fb-muted)] ${CONTROL_MOTION}`}
 						>
 							...
 						</span>
 					) : (
 						<button
-							className="max-w-[160px] truncate rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 text-[12px] font-semibold hover:bg-[var(--fb-bg)]"
+							className={`max-w-[160px] truncate rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 text-[12px] font-semibold hover:bg-[var(--fb-bg)] ${CONTROL_MOTION}`}
 							onClick={() => void onNavigate(crumb.path)}
 							type="button"
 						>
@@ -2439,10 +2467,12 @@ function DetailsPanel({ item, onDownload }: { item: FileNode | null; onDownload:
 		return (
 			<aside
 				aria-label="Details"
-				className="hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:flex"
+				className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:flex ${SURFACE_MOTION}`}
 			>
 				<div className="flex min-h-full flex-1 flex-col items-center justify-center text-center">
-					<div className="grid h-28 w-full place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)]">
+					<div
+						className={`grid h-28 w-full place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}
+					>
 						<Square className="size-12 text-[var(--fb-muted)]" />
 					</div>
 					<h2 className="mt-4 text-[14px] font-semibold">No item selected</h2>
@@ -2454,9 +2484,9 @@ function DetailsPanel({ item, onDownload }: { item: FileNode | null; onDownload:
 	return (
 		<aside
 			aria-label="Details"
-			className="hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block"
+			className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block ${SURFACE_MOTION}`}
 		>
-			<div className="grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)]">
+			<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
 				{item.kind === 'folder' ? (
 					<Folder className="size-12 text-[var(--fb-folder)]" />
 				) : (
@@ -2501,7 +2531,7 @@ function PreviewOriginalLink({ preview }: { preview: PreviewState }) {
 	return (
 		<a
 			aria-label={`Open original ${preview.item.name}`}
-			className="mt-4 inline-flex h-8 items-center rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2.5 text-[12px] font-medium text-[var(--fb-accent)] outline-none transition hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]"
+			className={`mt-4 inline-flex h-8 items-center rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2.5 text-[12px] font-medium text-[var(--fb-accent)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 			href={preview.url}
 			rel="noreferrer"
 			target="_blank"
@@ -2516,7 +2546,7 @@ function SkeletonGrid() {
 		<div aria-label="Files" className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3" role="grid">
 			{Array.from({ length: 8 }, (_, index) => (
 				<div
-					className="min-h-[132px] animate-pulse rounded-[calc(var(--fb-radius)-1px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-2"
+					className={`min-h-[132px] animate-pulse rounded-[calc(var(--fb-radius)-1px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-2 ${SURFACE_MOTION}`}
 					key={index}
 				>
 					<div className="h-16 rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)]" />
@@ -2530,7 +2560,9 @@ function SkeletonGrid() {
 
 function StateMessage({ title, value, tone }: { title: string; value: string; tone?: 'danger' }) {
 	return (
-		<div className="grid min-h-[280px] place-items-center rounded-[var(--fb-radius)] border border-dashed border-[var(--fb-border)] bg-[var(--fb-surface)] p-8 text-center">
+		<div
+			className={`grid min-h-[280px] place-items-center rounded-[var(--fb-radius)] border border-dashed border-[var(--fb-border)] bg-[var(--fb-surface)] p-8 text-center ${SURFACE_MOTION}`}
+		>
 			<div>
 				<div className={`font-semibold ${tone === 'danger' ? 'text-[var(--fb-danger)]' : ''}`}>{title}</div>
 				<div className="mt-1 text-[12px] text-[var(--fb-muted)]">{value}</div>
@@ -2722,7 +2754,7 @@ function formatScreenReaderStatus({
 }
 
 function toolButton(active: boolean) {
-	return `inline-flex h-8 items-center justify-center gap-1 rounded-[calc(var(--fb-radius)-3px)] border px-2 text-[12px] font-medium outline-none transition focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${
+	return `inline-flex h-8 items-center justify-center gap-1 rounded-[calc(var(--fb-radius)-3px)] border px-2 text-[12px] font-medium outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
 		active
 			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
 			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] hover:bg-[var(--fb-bg)]'
@@ -2730,7 +2762,7 @@ function toolButton(active: boolean) {
 }
 
 function commandButton(active: boolean) {
-	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border px-2.5 text-[12px] font-medium outline-none transition disabled:cursor-not-allowed disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${
+	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border px-2.5 text-[12px] font-medium outline-none disabled:cursor-not-allowed disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
 		active
 			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
 			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-bg)]'
@@ -2738,13 +2770,13 @@ function commandButton(active: boolean) {
 }
 
 function primaryButton() {
-	return 'inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2.5 text-[12px] font-semibold text-[var(--fb-surface)] outline-none transition hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2.5 text-[12px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 }
 
 function dangerButton() {
-	return 'inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2.5 text-[12px] font-medium text-[var(--fb-danger)] outline-none transition hover:bg-[var(--fb-danger-soft)] focus:ring-2 focus:ring-[var(--fb-danger-soft)]'
+	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2.5 text-[12px] font-medium text-[var(--fb-danger)] outline-none hover:bg-[var(--fb-danger-soft)] focus:ring-2 focus:ring-[var(--fb-danger-soft)] ${CONTROL_MOTION}`
 }
 
 function selectInput() {
-	return 'h-8 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[12px] font-medium text-[var(--fb-text)] outline-none transition focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)]'
+	return `h-8 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[12px] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 }
