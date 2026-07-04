@@ -121,7 +121,7 @@ export function App() {
 				<FileBrowserProvider>
 					<section className="flex flex-wrap items-center gap-2 rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-2">
 						<div className="mr-auto min-w-56 px-1">
-							<h1 className="m-0 text-[14px] font-semibold">react-file-browser demo</h1>
+							<h1 className="m-0 text-[14px] font-semibold">React File Browser</h1>
 							<p className="m-0 mt-0.5 text-[12px] text-[var(--fb-muted)]">{activeMode.description}</p>
 						</div>
 						{DEMO_MODES.map((item) => (
