@@ -9,3 +9,8 @@ demo/dist/
 coverage/
 .idea/
 .vscode/
+
+# Internal build/design references (kept locally, not published)
+AGENTS.md
+docs/DESIGN.md
+docs/design/
