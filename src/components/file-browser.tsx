@@ -18,9 +18,10 @@ import {
 	X as XIcon
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, KeyboardEvent, MouseEvent } from 'react'
+import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import Selecto from 'react-selecto'
 import type { OnSelect } from 'react-selecto'
+import type { FileBrowserDensity } from '../theme'
 import { useFileBrowser } from '../core/use-file-browser'
 import type { FileBrowserUploadConflictResolution } from '../core/use-file-browser'
 import { getFileBrowserDirname, joinFileBrowserPath, normalizeFileBrowserPath } from '../core/path'
@@ -34,7 +35,7 @@ import type { UploadTransferGroup } from '../transfers/transfer-manager'
 export type FileBrowserProps = {
 	adapter: FileBrowserAdapter
 	initialPath?: string
-	density?: 'comfortable' | 'compact'
+	density?: FileBrowserDensity
 	readOnly?: boolean
 	showDetailsPanel?: boolean
 	uploadPolicy?: FileBrowserUploadPolicy
@@ -104,6 +105,39 @@ const CONTROL_MOTION =
 	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
 const SURFACE_MOTION =
 	'transition-[background-color,border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none'
+
+// Density drives layout scale through CSS variables set inline on the root, so the effect works for
+// every consumer without shipping global CSS. Classes below reference these vars (e.g. h-[var(--fb-control-h)]).
+const DENSITY_STYLES: Record<FileBrowserDensity, CSSProperties> = {
+	comfortable: {
+		'--fb-font': '13px',
+		'--fb-control-h': '32px',
+		'--fb-cell-x': '12px',
+		'--fb-cell-y': '8px',
+		'--fb-pad': '12px',
+		'--fb-card-min': '150px',
+		'--fb-card-minh': '132px',
+		'--fb-card-pad': '8px',
+		'--fb-thumb-h': '64px',
+		'--fb-grid-gap': '12px',
+		'--fb-panel-w': '18rem',
+		'--fb-panel-pad': '16px'
+	} as CSSProperties,
+	compact: {
+		'--fb-font': '12px',
+		'--fb-control-h': '28px',
+		'--fb-cell-x': '10px',
+		'--fb-cell-y': '6px',
+		'--fb-pad': '8px',
+		'--fb-card-min': '124px',
+		'--fb-card-minh': '108px',
+		'--fb-card-pad': '6px',
+		'--fb-thumb-h': '48px',
+		'--fb-grid-gap': '8px',
+		'--fb-panel-w': '15rem',
+		'--fb-panel-pad': '12px'
+	} as CSSProperties
+}
 
 export function FileBrowser({
 	adapter,
@@ -900,9 +934,10 @@ export function FileBrowser({
 
 	return (
 		<section
-			className={`flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[13px] text-[var(--fb-text)] ${SURFACE_MOTION}`}
+			className={`flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[length:var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION}`}
 			data-fb-density={density}
 			ref={rootRef}
+			style={DENSITY_STYLES[density]}
 			onDragEnter={(event) => {
 				event.preventDefault()
 				if (!readOnly) {
@@ -945,7 +980,7 @@ export function FileBrowser({
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header
-					className={`flex min-h-[52px] flex-wrap items-center gap-2 border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-3 py-2 ${SURFACE_MOTION}`}
+					className={`flex flex-wrap items-center gap-2 border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-[var(--fb-pad)] py-[var(--fb-cell-y)] ${SURFACE_MOTION}`}
 				>
 					<Breadcrumbs path={browser.currentPath} onNavigate={browser.navigate} />
 					{clipboardNotice ? (
@@ -965,7 +1000,7 @@ export function FileBrowser({
 							/>
 							<input
 								aria-label="Search files"
-								className={`h-8 w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-7 pr-2 text-[12px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
+								className={`h-[var(--fb-control-h)] w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-7 pr-2 text-[12px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
 								onChange={(event) => browser.setSearchQuery(event.target.value)}
 								placeholder="Search"
 								type="search"
@@ -1069,7 +1104,7 @@ export function FileBrowser({
 				) : null}
 
 				<div
-					className={`relative min-h-0 flex-1 overflow-auto bg-[var(--fb-bg)] p-3 ${SURFACE_MOTION}`}
+					className={`relative min-h-0 flex-1 overflow-auto bg-[var(--fb-bg)] p-[var(--fb-pad)] ${SURFACE_MOTION}`}
 					onClick={clearSelectionFromEmptySurface}
 					onContextMenu={openEmptyContextMenu}
 				>
@@ -1140,7 +1175,7 @@ export function FileBrowser({
 				</div>
 
 				<footer
-					className={`flex h-9 items-center justify-between border-t border-[var(--fb-border)] px-3 text-[11px] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
+					className={`flex h-9 items-center justify-between border-t border-[var(--fb-border)] px-[var(--fb-pad)] text-[11px] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
 				>
 					<span>
 						{browser.filteredItems.length} items
@@ -1716,7 +1751,7 @@ function FileGrid({
 			) : null}
 			<div
 				aria-label="Files"
-				className="relative grid min-h-full content-start grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3"
+				className="relative grid min-h-full content-start grid-cols-[repeat(auto-fill,minmax(var(--fb-card-min),1fr))] gap-[var(--fb-grid-gap)]"
 				onClick={(event) => {
 					if (event.target === event.currentTarget && !hasSelectionModifier(event)) {
 						onEmptyClick()
@@ -1812,7 +1847,7 @@ function FileCard({
 			data-fb-path={item.path}
 			data-fb-selectable="true"
 			draggable={canMove}
-			className={`group relative flex min-h-[132px] cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-2 outline-none hover:shadow-[0_8px_22px_color-mix(in_oklch,var(--fb-text)_8%,transparent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${SURFACE_MOTION} ${
+			className={`group relative flex min-h-[var(--fb-card-minh)] cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-[var(--fb-card-pad)] outline-none hover:shadow-[0_8px_22px_color-mix(in_oklch,var(--fb-text)_8%,transparent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${SURFACE_MOTION} ${
 				selected
 					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)]'
 					: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)]'
@@ -1841,7 +1876,7 @@ function FileCard({
 				{selected ? '✓' : ''}
 			</span>
 			<div
-				className={`grid h-16 place-items-center rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)] group-hover:bg-[var(--fb-bg)] ${CONTROL_MOTION}`}
+				className={`grid h-[var(--fb-thumb-h)] place-items-center rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)] group-hover:bg-[var(--fb-bg)] ${CONTROL_MOTION}`}
 			>
 				{item.kind === 'folder' ? (
 					<Folder aria-hidden="true" className="size-9 text-[var(--fb-folder)]" />
@@ -1971,9 +2006,15 @@ function FileTable({
 		>
 			<thead className="text-[11px] text-[var(--fb-muted)]">
 				<tr>
-					<th className="border-b border-[var(--fb-border)] px-3 py-2 font-medium">Name</th>
-					<th className="border-b border-[var(--fb-border)] px-3 py-2 font-medium">Size</th>
-					<th className="border-b border-[var(--fb-border)] px-3 py-2 font-medium">Modified</th>
+					<th className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
+						Name
+					</th>
+					<th className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
+						Size
+					</th>
+					<th className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
+						Modified
+					</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -1996,7 +2037,7 @@ function FileTable({
 						onDoubleClick={() => onOpenItem(item)}
 						tabIndex={0}
 					>
-						<td className="border-b border-[var(--fb-border)] px-3 py-2">
+						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)]">
 							<div className="flex min-w-0 items-center gap-2">
 								{item.kind === 'folder' ? (
 									<Folder className="size-4 text-[var(--fb-folder)]" />
@@ -2027,10 +2068,10 @@ function FileTable({
 								)}
 							</div>
 						</td>
-						<td className="border-b border-[var(--fb-border)] px-3 py-2 text-[12px] text-[var(--fb-muted)]">
+						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
 							{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
 						</td>
-						<td className="border-b border-[var(--fb-border)] px-3 py-2 text-[12px] text-[var(--fb-muted)]">
+						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
 							{item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString() : '—'}
 						</td>
 					</tr>
@@ -2371,7 +2412,7 @@ function ActionBar({
 	return (
 		<div
 			aria-label="Selection actions"
-			className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--fb-border)] px-3 py-1.5 ${SURFACE_MOTION} ${
+			className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-1.5 ${SURFACE_MOTION} ${
 				hasSelection ? 'bg-[var(--fb-accent-soft)]' : 'bg-[var(--fb-surface)]'
 			}`}
 			role="toolbar"
@@ -2515,7 +2556,7 @@ function DetailsPanel({
 		return (
 			<aside
 				aria-label="Details"
-				className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:flex ${SURFACE_MOTION}`}
+				className={`hidden w-[var(--fb-panel-w)] shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-panel-pad)] md:flex ${SURFACE_MOTION}`}
 			>
 				<div className="flex min-h-full flex-1 flex-col items-center justify-center text-center">
 					<div
@@ -2533,7 +2574,7 @@ function DetailsPanel({
 		return (
 			<aside
 				aria-label="Details"
-				className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block ${SURFACE_MOTION}`}
+				className={`hidden w-[var(--fb-panel-w)] shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-panel-pad)] md:block ${SURFACE_MOTION}`}
 			>
 				<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
 					<CopyIcon className="size-12 text-[var(--fb-muted)]" />
@@ -2638,13 +2679,17 @@ function PreviewOriginalLink({ preview }: { preview: PreviewState }) {
 
 function SkeletonGrid() {
 	return (
-		<div aria-label="Files" className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3" role="grid">
+		<div
+			aria-label="Files"
+			className="grid grid-cols-[repeat(auto-fill,minmax(var(--fb-card-min),1fr))] gap-[var(--fb-grid-gap)]"
+			role="grid"
+		>
 			{Array.from({ length: 8 }, (_, index) => (
 				<div
-					className={`min-h-[132px] animate-pulse rounded-[calc(var(--fb-radius)-1px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-2 ${SURFACE_MOTION}`}
+					className={`min-h-[var(--fb-card-minh)] animate-pulse rounded-[calc(var(--fb-radius)-1px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-card-pad)] ${SURFACE_MOTION}`}
 					key={index}
 				>
-					<div className="h-16 rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)]" />
+					<div className="h-[var(--fb-thumb-h)] rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)]" />
 					<div className="mt-3 h-3 w-3/4 rounded bg-[var(--fb-surface-2)]" />
 					<div className="mt-2 h-3 w-1/2 rounded bg-[var(--fb-surface-2)]" />
 				</div>
@@ -2849,7 +2894,7 @@ function formatScreenReaderStatus({
 }
 
 function toolButton(active: boolean) {
-	return `inline-flex h-8 items-center justify-center gap-1 rounded-[calc(var(--fb-radius)-3px)] border px-2 text-[12px] font-medium outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
+	return `inline-flex h-[var(--fb-control-h)] items-center justify-center gap-1 rounded-[calc(var(--fb-radius)-3px)] border px-2 text-[12px] font-medium outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
 		active
 			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
 			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] hover:bg-[var(--fb-bg)]'
@@ -2857,7 +2902,7 @@ function toolButton(active: boolean) {
 }
 
 function commandButton(active: boolean) {
-	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border px-2.5 text-[12px] font-medium outline-none disabled:cursor-not-allowed disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
+	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border px-2.5 text-[12px] font-medium outline-none disabled:cursor-not-allowed disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION} ${
 		active
 			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
 			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-bg)]'
@@ -2865,13 +2910,13 @@ function commandButton(active: boolean) {
 }
 
 function primaryButton() {
-	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2.5 text-[12px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2.5 text-[12px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 }
 
 function dangerButton() {
-	return `inline-flex h-8 items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2.5 text-[12px] font-medium text-[var(--fb-danger)] outline-none hover:bg-[var(--fb-danger-soft)] focus:ring-2 focus:ring-[var(--fb-danger-soft)] ${CONTROL_MOTION}`
+	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2.5 text-[12px] font-medium text-[var(--fb-danger)] outline-none hover:bg-[var(--fb-danger-soft)] focus:ring-2 focus:ring-[var(--fb-danger-soft)] ${CONTROL_MOTION}`
 }
 
 function selectInput() {
-	return `h-8 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[12px] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+	return `h-[var(--fb-control-h)] rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[12px] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 }

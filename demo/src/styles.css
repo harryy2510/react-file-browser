@@ -30,18 +30,6 @@
 	--fb-gap: var(--spacing, 0.25rem);
 }
 
-[data-fb-density='comfortable'] {
-	--fb-row-height: 44px;
-	--fb-card-min: 150px;
-	--fb-control-height: 32px;
-}
-
-[data-fb-density='compact'] {
-	--fb-row-height: 30px;
-	--fb-card-min: 124px;
-	--fb-control-height: 28px;
-}
-
 * {
 	box-sizing: border-box;
 }

@@ -127,6 +127,23 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('complementary', { name: 'Details' }).className).toContain('duration-200')
 	})
 
+	test('applies compact density tokens that differ from comfortable', async () => {
+		const adapter = await adapterWithFiles()
+
+		const { container: comfortable } = render(<FileBrowser adapter={adapter} density="comfortable" />)
+		const comfortableRoot = comfortable.querySelector<HTMLElement>('[data-fb-density]')
+		expect(comfortableRoot).not.toBeNull()
+		expect(comfortableRoot?.getAttribute('data-fb-density')).toBe('comfortable')
+		expect(comfortableRoot?.style.getPropertyValue('--fb-control-h')).toBe('32px')
+		expect(comfortableRoot?.style.getPropertyValue('--fb-card-minh')).toBe('132px')
+
+		const { container: compact } = render(<FileBrowser adapter={adapter} density="compact" />)
+		const compactRoot = compact.querySelector<HTMLElement>('[data-fb-density]')
+		expect(compactRoot?.getAttribute('data-fb-density')).toBe('compact')
+		expect(compactRoot?.style.getPropertyValue('--fb-control-h')).toBe('28px')
+		expect(compactRoot?.style.getPropertyValue('--fb-card-minh')).toBe('108px')
+	})
+
 	test('toggles off a selected item with a plain click', async () => {
 		const adapter = await adapterWithFiles()
 
