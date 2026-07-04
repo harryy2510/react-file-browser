@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a problem with react-file-browser
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill out the sections below.
+        For security issues, do not open a public issue: see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, code, or a link to a reproduction.
+      placeholder: |
+        1. Mount <FileBrowser> with the ... adapter
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: react-file-browser version
+      placeholder: e.g. 1.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter
+      options:
+        - in-memory
+        - s3
+        - r2
+        - supabase
+        - custom
+    validations:
+      required: true
+  - type: input
+    id: react-version
+    attributes:
+      label: React version
+      placeholder: e.g. 19.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, OS, bundler, and anything else relevant.
+    validations:
+      required: false

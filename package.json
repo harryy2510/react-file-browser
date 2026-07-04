@@ -2,10 +2,32 @@
 	"name": "react-file-browser",
 	"version": "0.0.0-development",
 	"description": "A standalone, storage-agnostic React file manager component library.",
+	"keywords": [
+		"file-browser",
+		"file-explorer",
+		"file-manager",
+		"r2",
+		"react",
+		"s3",
+		"storage",
+		"supabase",
+		"typescript",
+		"upload"
+	],
+	"homepage": "https://harryy2510.github.io/react-file-browser/",
+	"bugs": {
+		"url": "https://github.com/harryy2510/react-file-browser/issues"
+	},
 	"license": "MIT",
+	"author": "Hariom Sharma",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/harryy2510/react-file-browser.git"
+	},
 	"files": [
 		"dist",
-		"README.md"
+		"README.md",
+		"LICENSE"
 	],
 	"type": "module",
 	"sideEffects": false,

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussions
+    url: https://github.com/harryy2510/react-file-browser/discussions
+    about: Ask questions and discuss ideas with the community.
+  - name: Security report
+    url: https://github.com/harryy2510/react-file-browser/security/advisories/new
+    about: Report a security vulnerability privately.
