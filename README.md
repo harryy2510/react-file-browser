@@ -1,15 +1,15 @@
-# react-file-browser
+# @harryy/react-file-browser
 
 A standalone, storage-agnostic React file manager component. Ships UI and client logic only, with
 zero server code. Storage access goes through a host-provided adapter, so the same component drives
 S3, Cloudflare R2, Supabase Storage, an in-memory store, or any backend you implement.
 
-[![npm version](https://img.shields.io/npm/v/react-file-browser.svg)](https://www.npmjs.com/package/react-file-browser)
-[![npm downloads](https://img.shields.io/npm/dm/react-file-browser.svg)](https://www.npmjs.com/package/react-file-browser)
+[![npm version](https://img.shields.io/npm/v/@harryy/react-file-browser.svg)](https://www.npmjs.com/package/@harryy/react-file-browser)
+[![npm downloads](https://img.shields.io/npm/dm/@harryy/react-file-browser.svg)](https://www.npmjs.com/package/@harryy/react-file-browser)
 [![CI](https://github.com/harryy2510/react-file-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/harryy2510/react-file-browser/actions/workflows/ci.yml)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/react-file-browser)](https://bundlephobia.com/package/react-file-browser)
-[![types](https://img.shields.io/npm/types/react-file-browser.svg)](https://www.npmjs.com/package/react-file-browser)
-[![license](https://img.shields.io/npm/l/react-file-browser.svg)](LICENSE)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/@harryy/react-file-browser)](https://bundlephobia.com/package/@harryy/react-file-browser)
+[![types](https://img.shields.io/npm/types/@harryy/react-file-browser.svg)](https://www.npmjs.com/package/@harryy/react-file-browser)
+[![license](https://img.shields.io/npm/l/@harryy/react-file-browser.svg)](LICENSE)
 
 **[Live demo →](https://harryy2510.github.io/react-file-browser/)**
 
@@ -34,8 +34,8 @@ S3, Cloudflare R2, Supabase Storage, an in-memory store, or any backend you impl
 ## Install
 
 ```bash
-bun add react-file-browser
-# or: npm install react-file-browser
+bun add @harryy/react-file-browser
+# or: npm install @harryy/react-file-browser
 ```
 
 `react` and `react-dom` (>=18 <20) are peer dependencies. The AWS SDK and Supabase client are
@@ -44,8 +44,8 @@ optional peers, needed only for their respective adapters.
 ## Quick start
 
 ```tsx
-import { FileBrowser, FileBrowserProvider } from "react-file-browser";
-import { InMemoryFileBrowserAdapter } from "react-file-browser/adapters/in-memory";
+import { FileBrowser, FileBrowserProvider } from "@harryy/react-file-browser";
+import { InMemoryFileBrowserAdapter } from "@harryy/react-file-browser/adapters/in-memory";
 
 const adapter = new InMemoryFileBrowserAdapter();
 
@@ -83,10 +83,10 @@ is accepted:
 
 The core contract is the `FileBrowserAdapter` interface. Available built-in adapters:
 
-- `react-file-browser/adapters/in-memory`
-- `react-file-browser/adapters/s3`
-- `react-file-browser/adapters/r2`
-- `react-file-browser/adapters/supabase`
+- `@harryy/react-file-browser/adapters/in-memory`
+- `@harryy/react-file-browser/adapters/s3`
+- `@harryy/react-file-browser/adapters/r2`
+- `@harryy/react-file-browser/adapters/supabase`
 
 The in-memory adapter is usable for tests and demos. It can opt into multipart methods with
 `capabilities: { multipart: true }` and `multipartPartSize` so resumable upload flows are testable
@@ -99,7 +99,7 @@ S3 and R2 use the S3-compatible SDK surface when you provide a client and bucket
 
 ```ts
 import { S3Client } from "@aws-sdk/client-s3";
-import { S3FileBrowserAdapter } from "react-file-browser/adapters/s3";
+import { S3FileBrowserAdapter } from "@harryy/react-file-browser/adapters/s3";
 
 const adapter = new S3FileBrowserAdapter({
   bucket: "assets",
@@ -115,7 +115,7 @@ const adapter = new S3FileBrowserAdapter({
 
 ```ts
 import { createClient } from "@supabase/supabase-js";
-import { SupabaseFileBrowserAdapter } from "react-file-browser/adapters/supabase";
+import { SupabaseFileBrowserAdapter } from "@harryy/react-file-browser/adapters/supabase";
 
 const supabase = createClient(url, anonKey);
 const adapter = new SupabaseFileBrowserAdapter({
@@ -131,7 +131,7 @@ Implement the `FileBrowserAdapter` interface directly, or pass a custom `impleme
 adapter to delegate required and optional methods:
 
 ```ts
-import { S3FileBrowserAdapter } from "react-file-browser/adapters/s3";
+import { S3FileBrowserAdapter } from "@harryy/react-file-browser/adapters/s3";
 
 const adapter = new S3FileBrowserAdapter({
   implementation: hostBackedAdapter,
@@ -187,12 +187,12 @@ own UI. The `FileBrowser` component is a consumer of this hook.
 
 | Import | Contents |
 | --- | --- |
-| `react-file-browser` | `FileBrowser`, `FileBrowserProvider`, `useFileBrowser`, `TransferManager`, adapter types and errors, path utilities. |
-| `react-file-browser/adapters/in-memory` | `InMemoryFileBrowserAdapter`, `createInMemoryFileBrowserAdapter`. |
-| `react-file-browser/adapters/s3` | `S3FileBrowserAdapter`. |
-| `react-file-browser/adapters/r2` | `R2FileBrowserAdapter`. |
-| `react-file-browser/adapters/supabase` | `SupabaseFileBrowserAdapter`. |
-| `react-file-browser/theme` | `FILE_BROWSER_THEME_CONTRACT`, `getFileBrowserDensityAttributes`. |
+| `@harryy/react-file-browser` | `FileBrowser`, `FileBrowserProvider`, `useFileBrowser`, `TransferManager`, adapter types and errors, path utilities. |
+| `@harryy/react-file-browser/adapters/in-memory` | `InMemoryFileBrowserAdapter`, `createInMemoryFileBrowserAdapter`. |
+| `@harryy/react-file-browser/adapters/s3` | `S3FileBrowserAdapter`. |
+| `@harryy/react-file-browser/adapters/r2` | `R2FileBrowserAdapter`. |
+| `@harryy/react-file-browser/adapters/supabase` | `SupabaseFileBrowserAdapter`. |
+| `@harryy/react-file-browser/theme` | `FILE_BROWSER_THEME_CONTRACT`, `getFileBrowserDensityAttributes`. |
 
 ## Styling
 

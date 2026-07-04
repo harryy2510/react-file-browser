@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileBrowser, FileBrowserAdapterError, FileBrowserProvider } from 'react-file-browser'
-import type { FileBrowserAdapter, FileBrowserProps, FileNode } from 'react-file-browser'
-import { InMemoryFileBrowserAdapter } from 'react-file-browser/adapters/in-memory'
-import { getFileBrowserDensityAttributes } from 'react-file-browser/theme'
+import { FileBrowser, FileBrowserAdapterError, FileBrowserProvider } from '@harryy/react-file-browser'
+import type { FileBrowserAdapter, FileBrowserProps, FileNode } from '@harryy/react-file-browser'
+import { InMemoryFileBrowserAdapter } from '@harryy/react-file-browser/adapters/in-memory'
+import { getFileBrowserDensityAttributes } from '@harryy/react-file-browser/theme'
 
 type DemoMode = {
 	id: 'full' | 'readonly' | 'minimal' | 'policy' | 'compact' | 'empty' | 'denied'

@@ -13,12 +13,12 @@
 		"moduleResolution": "Bundler",
 		"paths": {
 			"@/*": ["./src/*"],
-			"react-file-browser": ["./src/index.ts"],
-			"react-file-browser/adapters/in-memory": ["./src/adapters/in-memory/index.ts"],
-			"react-file-browser/adapters/s3": ["./src/adapters/s3/index.ts"],
-			"react-file-browser/adapters/r2": ["./src/adapters/r2/index.ts"],
-			"react-file-browser/adapters/supabase": ["./src/adapters/supabase/index.ts"],
-			"react-file-browser/theme": ["./src/theme/index.ts"]
+			"@harryy/react-file-browser": ["./src/index.ts"],
+			"@harryy/react-file-browser/adapters/in-memory": ["./src/adapters/in-memory/index.ts"],
+			"@harryy/react-file-browser/adapters/s3": ["./src/adapters/s3/index.ts"],
+			"@harryy/react-file-browser/adapters/r2": ["./src/adapters/r2/index.ts"],
+			"@harryy/react-file-browser/adapters/supabase": ["./src/adapters/supabase/index.ts"],
+			"@harryy/react-file-browser/theme": ["./src/theme/index.ts"]
 		},
 		"resolveJsonModule": true,
 		"isolatedModules": true,

@@ -1,5 +1,5 @@
 {
-	"name": "react-file-browser",
+	"name": "@harryy/react-file-browser",
 	"version": "0.0.0-development",
 	"description": "A standalone, storage-agnostic React file manager component library.",
 	"keywords": [
