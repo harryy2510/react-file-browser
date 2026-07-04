@@ -1,0 +1,35 @@
+pre-commit:
+  jobs:
+    - name: oxfmt
+      run: bun run oxfmt --write {staged_files}
+      glob:
+        - '*.cjs'
+        - '*.css'
+        - '*.cts'
+        - '*.js'
+        - '*.json'
+        - '*.jsonc'
+        - '*.jsx'
+        - '*.mjs'
+        - '*.mts'
+        - '*.ts'
+        - '*.tsx'
+      stage_fixed: true
+
+    - name: oxlint
+      run: bun run oxlint --fix --type-aware {staged_files}
+      glob:
+        - '*.cjs'
+        - '*.cts'
+        - '*.js'
+        - '*.jsx'
+        - '*.mjs'
+        - '*.mts'
+        - '*.ts'
+        - '*.tsx'
+      stage_fixed: true
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: bun run commitlint --edit {1}

@@ -1,0 +1,21 @@
+{
+	"arrowParens": "always",
+	"ignorePatterns": [
+		"**/*.md",
+		"**/dist/**",
+		"**/build/**",
+		"**/coverage/**",
+		"**/node_modules/**",
+		"**/demo/dist/**",
+		"**/docs/design/**",
+		"**/*.gen.ts",
+		"**/*.generated.ts",
+		"bun.lock"
+	],
+	"semi": false,
+	"singleQuote": true,
+	"tabWidth": 2,
+	"trailingComma": "none",
+	"useTabs": true,
+	"printWidth": 120
+}

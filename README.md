@@ -161,9 +161,10 @@ Skipping these leaks storage cost.
 ```bash
 bun run typecheck
 bun run lint
+bun run format:check
 bun run test
 bun run build
 bun run validate
 ```
 
-`validate` runs typecheck, lint, unit tests, library build, and demo build.
+`validate` runs Oxfmt check, Oxlint type-aware linting, unit tests, library build, and demo build.

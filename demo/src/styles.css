@@ -1,59 +1,59 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @source "./**/*.{ts,tsx}";
 @source "../../src/**/*.{ts,tsx}";
 
 @theme {
-  --font-sans: Figtree, ui-sans-serif, system-ui, sans-serif;
-  --color-primary-500: oklch(.54 .19 285);
-  --color-primary-50: oklch(.54 .19 285 / .09);
+	--font-sans: Figtree, ui-sans-serif, system-ui, sans-serif;
+	--color-primary-500: oklch(0.54 0.19 285);
+	--color-primary-50: oklch(0.54 0.19 285 / 0.09);
 }
 
 :root {
-  --fb-accent: var(--color-primary-500, oklch(.54 .19 285));
-  --fb-accent-soft: var(--color-primary-50, oklch(.54 .19 285 / .09));
-  --fb-bg: var(--color-gray-50, #f5f5f9);
-  --fb-surface: var(--color-white, #fff);
-  --fb-surface-2: var(--color-gray-100, #f1f1f6);
-  --fb-border: var(--color-gray-200, #e5e5ee);
-  --fb-border-strong: var(--color-gray-300, #d3d3e2);
-  --fb-text: var(--color-gray-950, #1a1a24);
-  --fb-muted: var(--color-gray-500, #71717f);
-  --fb-ok: var(--color-green-600, oklch(.54 .15 150));
-  --fb-ok-soft: var(--color-green-50, oklch(.54 .15 150 / .12));
-  --fb-warn: var(--color-yellow-600, oklch(.54 .15 80));
-  --fb-warn-soft: var(--color-yellow-50, oklch(.54 .15 80 / .12));
-  --fb-danger: var(--color-red-600, oklch(.54 .19 25));
-  --fb-danger-soft: var(--color-red-50, oklch(.54 .19 25 / .1));
-  --fb-folder: var(--color-amber-300, oklch(.78 .12 80));
-  --fb-radius: var(--radius-lg, 10px);
-  --fb-gap: var(--spacing, .25rem);
+	--fb-accent: var(--color-primary-500, oklch(0.54 0.19 285));
+	--fb-accent-soft: var(--color-primary-50, oklch(0.54 0.19 285 / 0.09));
+	--fb-bg: var(--color-gray-50, #f5f5f9);
+	--fb-surface: var(--color-white, #fff);
+	--fb-surface-2: var(--color-gray-100, #f1f1f6);
+	--fb-border: var(--color-gray-200, #e5e5ee);
+	--fb-border-strong: var(--color-gray-300, #d3d3e2);
+	--fb-text: var(--color-gray-950, #1a1a24);
+	--fb-muted: var(--color-gray-500, #71717f);
+	--fb-ok: var(--color-green-600, oklch(0.54 0.15 150));
+	--fb-ok-soft: var(--color-green-50, oklch(0.54 0.15 150 / 0.12));
+	--fb-warn: var(--color-yellow-600, oklch(0.54 0.15 80));
+	--fb-warn-soft: var(--color-yellow-50, oklch(0.54 0.15 80 / 0.12));
+	--fb-danger: var(--color-red-600, oklch(0.54 0.19 25));
+	--fb-danger-soft: var(--color-red-50, oklch(0.54 0.19 25 / 0.1));
+	--fb-folder: var(--color-amber-300, oklch(0.78 0.12 80));
+	--fb-radius: var(--radius-lg, 10px);
+	--fb-gap: var(--spacing, 0.25rem);
 }
 
-[data-fb-density="comfortable"] {
-  --fb-row-height: 44px;
-  --fb-card-min: 150px;
-  --fb-control-height: 32px;
+[data-fb-density='comfortable'] {
+	--fb-row-height: 44px;
+	--fb-card-min: 150px;
+	--fb-control-height: 32px;
 }
 
-[data-fb-density="compact"] {
-  --fb-row-height: 30px;
-  --fb-card-min: 124px;
-  --fb-control-height: 28px;
+[data-fb-density='compact'] {
+	--fb-row-height: 30px;
+	--fb-card-min: 124px;
+	--fb-control-height: 28px;
 }
 
 * {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  background: var(--fb-bg);
+	margin: 0;
+	background: var(--fb-bg);
 }
 
 button,
 input,
 textarea,
 select {
-  font: inherit;
+	font: inherit;
 }

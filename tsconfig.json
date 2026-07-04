@@ -1,43 +1,38 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "paths": {
-      "@/*": ["./src/*"],
-      "react-file-browser": ["./src/index.ts"],
-      "react-file-browser/adapters/in-memory": [
-        "./src/adapters/in-memory/index.ts"
-      ],
-      "react-file-browser/adapters/s3": ["./src/adapters/s3/index.ts"],
-      "react-file-browser/adapters/r2": ["./src/adapters/r2/index.ts"],
-      "react-file-browser/adapters/supabase": [
-        "./src/adapters/supabase/index.ts"
-      ],
-      "react-file-browser/theme": ["./src/theme/index.ts"]
-    },
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
-  },
-  "include": [
-    "src",
-    "tests",
-    "demo/src",
-    "demo/vite-env.d.ts",
-    "vite.config.ts",
-    "demo/vite.config.ts",
-    "eslint.config.js",
-    "vitest.setup.ts"
-  ]
+	"compilerOptions": {
+		"target": "ES2022",
+		"useDefineForClassFields": true,
+		"lib": ["DOM", "DOM.Iterable", "ES2022"],
+		"allowJs": false,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"strict": true,
+		"forceConsistentCasingInFileNames": true,
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"paths": {
+			"@/*": ["./src/*"],
+			"react-file-browser": ["./src/index.ts"],
+			"react-file-browser/adapters/in-memory": ["./src/adapters/in-memory/index.ts"],
+			"react-file-browser/adapters/s3": ["./src/adapters/s3/index.ts"],
+			"react-file-browser/adapters/r2": ["./src/adapters/r2/index.ts"],
+			"react-file-browser/adapters/supabase": ["./src/adapters/supabase/index.ts"],
+			"react-file-browser/theme": ["./src/theme/index.ts"]
+		},
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"types": ["vitest/globals", "@testing-library/jest-dom"]
+	},
+	"include": [
+		"src",
+		"tests",
+		"demo/src",
+		"demo/vite-env.d.ts",
+		"vite.config.ts",
+		"demo/vite.config.ts",
+		"vitest.setup.ts"
+	]
 }
