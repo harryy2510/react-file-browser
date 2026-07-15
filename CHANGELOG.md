@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/harryy2510/react-file-browser/compare/v1.0.0...v1.1.0) (2026-07-15)
+
+
+### Features
+
+* add host integration controls ([a89a954](https://github.com/harryy2510/react-file-browser/commit/a89a954ed7b0ac7e2a3149d26333fc4a439c924e))
+
 # 1.0.0 (2026-07-04)
 
 
