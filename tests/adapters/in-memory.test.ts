@@ -1,6 +1,7 @@
 import { unzipSync } from 'fflate'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { InMemoryFileBrowserAdapter, createInMemoryFileBrowserAdapter } from '@/adapters/in-memory'
+import type { FileNode } from '@/core/types'
 import { defineFileBrowserAdapterContract } from './adapter-contract'
 
 defineFileBrowserAdapterContract({
@@ -9,6 +10,54 @@ defineFileBrowserAdapterContract({
 })
 
 describe('InMemoryFileBrowserAdapter capabilities', () => {
+	test('preserves opaque ids and typed metadata through listing and mutations', async () => {
+		type RagMetadata = {
+			ragStatus: 'indexed' | 'pending'
+		}
+		const adapter = new InMemoryFileBrowserAdapter<RagMetadata>({
+			initialEntries: [
+				{
+					id: 'archive-id',
+					kind: 'folder',
+					metadata: { ragStatus: 'indexed' },
+					name: 'archive',
+					path: '/archive'
+				},
+				{
+					id: 'report-id',
+					kind: 'file',
+					metadata: { ragStatus: 'pending' },
+					name: 'report.txt',
+					path: '/report.txt'
+				}
+			]
+		})
+
+		const listed = await adapter.list('/')
+		expectTypeOf(listed.items).toEqualTypeOf<FileNode<RagMetadata>[]>()
+		expect(listed.items.find((item) => item.path === '/report.txt')).toMatchObject({
+			id: 'report-id',
+			metadata: { ragStatus: 'pending' }
+		})
+
+		const renamed = await adapter.rename?.('/report.txt', 'Indexed report.txt')
+		expect(renamed).toMatchObject({
+			id: 'report-id',
+			metadata: { ragStatus: 'pending' },
+			name: 'Indexed report.txt',
+			path: '/report.txt'
+		})
+
+		await adapter.copy?.(['/report.txt'], '/archive')
+		expect((await adapter.list('/archive')).items).toEqual([
+			expect.objectContaining({
+				id: 'report-id',
+				metadata: { ragStatus: 'pending' },
+				path: '/archive/report.txt'
+			})
+		])
+	})
+
 	test('keeps both files by allocating a non-conflicting name', async () => {
 		const adapter = new InMemoryFileBrowserAdapter()
 		const file = new File(['first'], 'hero-banner.jpg', { type: 'text/plain' })

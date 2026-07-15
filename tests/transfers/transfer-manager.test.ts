@@ -152,6 +152,242 @@ describe('TransferManager', () => {
 		})
 	})
 
+	test('limits concurrent uploads and starts queued work as slots complete', async () => {
+		const completions: Array<() => void> = []
+		const upload = vi.fn(
+			(path: string, file: File): Promise<FileNode> =>
+				new Promise((resolve) => {
+					completions.push(() =>
+						resolve({
+							path,
+							name: file.name,
+							kind: 'file',
+							size: file.size
+						})
+					)
+				})
+		)
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload
+		}
+		let nextId = 0
+		const manager = new TransferManager({
+			idFactory: () => `upload-${(nextId += 1)}`,
+			maxConcurrentUploads: 2
+		})
+
+		for (let index = 1; index <= 3; index += 1) {
+			manager.enqueueUpload({
+				adapter,
+				destinationPath: `/file-${index}.bin`,
+				file: fileOfSize(`file-${index}.bin`, 10)
+			})
+		}
+
+		expect(upload).toHaveBeenCalledTimes(2)
+		expect(manager.getSnapshot().uploads.map(({ status }) => status)).toEqual(['uploading', 'uploading', 'queued'])
+
+		completions[0]?.()
+		await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(3))
+		expect(manager.getUpload('upload-3')?.status).toBe('uploading')
+
+		completions[1]?.()
+		completions[2]?.()
+		await manager.waitForIdle()
+		expect(manager.getSnapshot().uploads.every(({ status }) => status === 'completed')).toBe(true)
+	})
+
+	test('releases a paused upload slot and schedules resumed work in queue order', async () => {
+		let completeSecondUpload: (() => void) | undefined
+		const upload = vi.fn((path: string, file: File, options?: FileBrowserUploadOptions): Promise<FileNode> => {
+			if (path === '/first.bin' && upload.mock.calls.length === 1) {
+				return new Promise((_resolve, reject) => {
+					options?.signal?.addEventListener('abort', () => reject(new Error('paused')), { once: true })
+				})
+			}
+			if (path === '/second.bin') {
+				return new Promise((resolve) => {
+					completeSecondUpload = () => resolve({ path, name: file.name, kind: 'file', size: file.size })
+				})
+			}
+			return Promise.resolve({ path, name: file.name, kind: 'file', size: file.size })
+		})
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload
+		}
+		let nextId = 0
+		const manager = new TransferManager({
+			idFactory: () => `upload-${(nextId += 1)}`,
+			maxConcurrentUploads: 1
+		})
+
+		manager.enqueueUpload({ adapter, destinationPath: '/first.bin', file: fileOfSize('first.bin', 10) })
+		manager.enqueueUpload({ adapter, destinationPath: '/second.bin', file: fileOfSize('second.bin', 10) })
+		manager.pauseUpload('upload-1')
+
+		await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2))
+		expect(manager.getUpload('upload-1')?.status).toBe('paused')
+		expect(manager.getUpload('upload-2')?.status).toBe('uploading')
+
+		await manager.resumeUpload('upload-1')
+		expect(manager.getUpload('upload-1')?.status).toBe('queued')
+		completeSecondUpload?.()
+
+		await manager.waitForIdle()
+		expect(upload.mock.calls.map(([path]) => path)).toEqual(['/first.bin', '/second.bin', '/first.bin'])
+		expect(manager.getSnapshot().uploads.every(({ status }) => status === 'completed')).toBe(true)
+	})
+
+	test('pumps queued uploads after failures and cancellations', async () => {
+		const upload = vi.fn((path: string, file: File, options?: FileBrowserUploadOptions): Promise<FileNode> => {
+			if (path === '/failed.bin') {
+				return Promise.reject(new Error('network'))
+			}
+			if (path === '/cancelled.bin') {
+				return new Promise((_resolve, reject) => {
+					options?.signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true })
+				})
+			}
+			return Promise.resolve({ path, name: file.name, kind: 'file', size: file.size })
+		})
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload
+		}
+		let nextId = 0
+		const manager = new TransferManager({
+			idFactory: () => `upload-${(nextId += 1)}`,
+			maxConcurrentUploads: 1
+		})
+
+		manager.enqueueUpload({ adapter, destinationPath: '/failed.bin', file: fileOfSize('failed.bin', 10) })
+		manager.enqueueUpload({ adapter, destinationPath: '/cancelled.bin', file: fileOfSize('cancelled.bin', 10) })
+		manager.enqueueUpload({ adapter, destinationPath: '/done.bin', file: fileOfSize('done.bin', 10) })
+
+		await vi.waitFor(() => expect(manager.getUpload('upload-2')?.status).toBe('uploading'))
+		expect(manager.getUpload('upload-1')?.status).toBe('failed')
+		await manager.cancelUpload('upload-2')
+		await manager.waitForIdle()
+
+		expect(upload.mock.calls.map(([path]) => path)).toEqual(['/failed.bin', '/cancelled.bin', '/done.bin'])
+		expect(manager.getUpload('upload-2')?.status).toBe('cancelled')
+		expect(manager.getUpload('upload-3')?.status).toBe('completed')
+	})
+
+	test('applies concurrency limits when restored uploads are reattached', async () => {
+		const storage = createMemoryStorage()
+		storage.setItem(
+			'transfers',
+			JSON.stringify({
+				uploads: ['first', 'second'].map((name, index) => ({
+					id: `upload-${index + 1}`,
+					kind: 'upload',
+					status: 'failed',
+					path: `/${name}.bin`,
+					name: `${name}.bin`,
+					loadedBytes: 0,
+					totalBytes: 10,
+					completedParts: [],
+					createdAt: '2026-07-04T00:00:00.000Z',
+					updatedAt: '2026-07-04T00:00:01.000Z'
+				})),
+				downloads: []
+			})
+		)
+		const completions: Array<() => void> = []
+		const upload = vi.fn(
+			(path: string, file: File): Promise<FileNode> =>
+				new Promise((resolve) => {
+					completions.push(() => resolve({ path, name: file.name, kind: 'file', size: file.size }))
+				})
+		)
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload
+		}
+		const manager = new TransferManager({ storage, storageKey: 'transfers', maxConcurrentUploads: 1 })
+
+		await manager.resumeRestoredUpload({
+			adapter,
+			file: fileOfSize('first.bin', 10),
+			id: 'upload-1'
+		})
+		await manager.resumeRestoredUpload({
+			adapter,
+			file: fileOfSize('second.bin', 10),
+			id: 'upload-2'
+		})
+
+		expect(upload).toHaveBeenCalledTimes(1)
+		expect(manager.getUpload('upload-2')?.status).toBe('queued')
+		completions[0]?.()
+		await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2))
+		completions[1]?.()
+		await manager.waitForIdle()
+	})
+
+	test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+		'rejects invalid maxConcurrentUploads value %s',
+		(maxConcurrentUploads) => {
+			expect(() => new TransferManager({ maxConcurrentUploads })).toThrow(
+				'maxConcurrentUploads must be a positive integer'
+			)
+		}
+	)
+
+	test('persists only explicit resume fields and excludes upload results and runtime objects', async () => {
+		const storage = createMemoryStorage()
+		const result = {
+			path: '/sensitive.bin',
+			name: 'sensitive.bin',
+			kind: 'file',
+			metadata: { ragStatus: 'indexed', sourceError: 'sensitive detail' }
+		} as FileNode & { metadata: { ragStatus: string; sourceError: string } }
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload: vi.fn(() => Promise.resolve(result))
+		}
+		const manager = new TransferManager({ storage, storageKey: 'transfers' })
+
+		manager.enqueueUpload({
+			adapter,
+			destinationPath: '/sensitive.bin',
+			file: fileOfSize('sensitive.bin', 10)
+		})
+		await manager.waitForIdle()
+
+		const persisted = JSON.parse(storage.getItem('transfers') ?? '{}') as {
+			uploads: Array<Record<string, unknown>>
+		}
+		expect(persisted.uploads[0]).not.toHaveProperty('result')
+		expect(persisted.uploads[0]).not.toHaveProperty('metadata')
+		expect(persisted.uploads[0]).not.toHaveProperty('file')
+		expect(persisted.uploads[0]).not.toHaveProperty('adapter')
+		expect(persisted.uploads[0]).not.toHaveProperty('abortController')
+		expect(persisted.uploads[0]).toMatchObject({
+			path: '/sensitive.bin',
+			status: 'completed',
+			totalBytes: 10
+		})
+	})
+
 	test('uses multipart capabilities and resumes from completed parts', async () => {
 		const uploadedParts: number[] = []
 		let failPartThree = true
@@ -385,6 +621,66 @@ describe('TransferManager', () => {
 			strategy: 'client',
 			warning: 'client_zip_size'
 		})
+	})
+
+	test('fails closed without touching client ZIP dependencies when fallback is disabled', async () => {
+		const signedUrl = vi.fn()
+		const list = vi.fn()
+		const adapter: FileBrowserAdapter = {
+			list,
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			upload: vi.fn(),
+			signedUrl
+		}
+		const fetch = vi.fn()
+		vi.stubGlobal('fetch', fetch)
+		const manager = new TransferManager()
+
+		const job = await manager.prepareBulkDownload({
+			adapter,
+			paths: ['/folder', '/file.txt'],
+			selectedBytes: 10,
+			allowClientZipFallback: false
+		})
+
+		expect(job).toMatchObject({
+			status: 'failed',
+			strategy: 'client',
+			error: 'Client-side ZIP fallback is disabled.'
+		})
+		expect(signedUrl).not.toHaveBeenCalled()
+		expect(list).not.toHaveBeenCalled()
+		expect(fetch).not.toHaveBeenCalled()
+		vi.unstubAllGlobals()
+	})
+
+	test('uses server ZIP preparation when client fallback is disabled', async () => {
+		const bulkDownloadUrl = vi.fn(() =>
+			Promise.resolve({
+				url: 'https://files.example/archive.zip',
+				expiresAt: '2026-07-04T04:00:00.000Z'
+			})
+		)
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			upload: vi.fn(),
+			signedUrl: vi.fn(),
+			bulkDownloadUrl
+		}
+		const manager = new TransferManager()
+
+		const job = await manager.prepareBulkDownload({
+			adapter,
+			paths: ['/folder'],
+			selectedBytes: 10,
+			allowClientZipFallback: false
+		})
+
+		expect(job).toMatchObject({ status: 'ready', strategy: 'server' })
+		expect(bulkDownloadUrl).toHaveBeenCalledWith(['/folder'])
 	})
 
 	test('does not restore expired or stale completed downloads', () => {

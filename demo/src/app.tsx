@@ -24,7 +24,7 @@ const DEMO_MODES: DemoMode[] = [
 	{
 		id: 'minimal',
 		label: 'Minimal',
-		description: 'Rename, move, copy, exists, and server zip omitted.'
+		description: 'Mutations, server zip, and client-zip fallback omitted.'
 	},
 	{
 		id: 'policy',
@@ -38,8 +38,8 @@ const DEMO_MODES: DemoMode[] = [
 	},
 	{
 		id: 'empty',
-		label: 'Empty',
-		description: 'Empty-folder state with create and upload affordances.'
+		label: 'Host empty',
+		description: 'Custom root label and React content for a host-specific empty state.'
 	},
 	{
 		id: 'denied',
@@ -143,10 +143,21 @@ export function App() {
 
 					{ready || mode === 'empty' || mode === 'denied' ? (
 						<FileBrowser
+							allowClientZipFallback={mode !== 'minimal'}
 							adapter={adapter}
 							density={density}
+							emptyState={
+								mode === 'empty'
+									? {
+											description: <span>Upload a source to begin indexing.</span>,
+											title: <strong>No RAG sources</strong>
+										}
+									: undefined
+							}
 							key={mode}
 							readOnly={mode === 'readonly'}
+							rootLabel={mode === 'empty' ? 'RAG' : 'Files'}
+							uploadConflictResolutions={mode === 'policy' ? ['keep-both', 'skip'] : undefined}
 							uploadPolicy={uploadPolicy}
 							warnZipSizeBytes={64}
 						/>

@@ -9,28 +9,28 @@ import type {
 
 export type CloudAdapterName = 'S3' | 'R2' | 'Supabase'
 
-export type CloudFileBrowserAdapterOptions = {
-	implementation?: FileBrowserAdapter
+export type CloudFileBrowserAdapterOptions<TMetadata = unknown> = {
+	implementation?: FileBrowserAdapter<TMetadata>
 }
 
-export class UnsupportedCloudFileBrowserAdapter implements FileBrowserAdapter {
-	readonly rename?: NonNullable<FileBrowserAdapter['rename']>
-	readonly createFolder?: NonNullable<FileBrowserAdapter['createFolder']>
-	readonly move?: NonNullable<FileBrowserAdapter['move']>
-	readonly copy?: NonNullable<FileBrowserAdapter['copy']>
-	readonly stat?: NonNullable<FileBrowserAdapter['stat']>
-	readonly exists?: NonNullable<FileBrowserAdapter['exists']>
-	readonly createMultipartUpload?: NonNullable<FileBrowserAdapter['createMultipartUpload']>
-	readonly uploadPart?: NonNullable<FileBrowserAdapter['uploadPart']>
-	readonly completeMultipartUpload?: NonNullable<FileBrowserAdapter['completeMultipartUpload']>
-	readonly abortMultipartUpload?: NonNullable<FileBrowserAdapter['abortMultipartUpload']>
-	readonly bulkDownloadUrl?: NonNullable<FileBrowserAdapter['bulkDownloadUrl']>
+export class UnsupportedCloudFileBrowserAdapter<TMetadata = unknown> implements FileBrowserAdapter<TMetadata> {
+	readonly rename?: NonNullable<FileBrowserAdapter<TMetadata>['rename']>
+	readonly createFolder?: NonNullable<FileBrowserAdapter<TMetadata>['createFolder']>
+	readonly move?: NonNullable<FileBrowserAdapter<TMetadata>['move']>
+	readonly copy?: NonNullable<FileBrowserAdapter<TMetadata>['copy']>
+	readonly stat?: NonNullable<FileBrowserAdapter<TMetadata>['stat']>
+	readonly exists?: NonNullable<FileBrowserAdapter<TMetadata>['exists']>
+	readonly createMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['createMultipartUpload']>
+	readonly uploadPart?: NonNullable<FileBrowserAdapter<TMetadata>['uploadPart']>
+	readonly completeMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['completeMultipartUpload']>
+	readonly abortMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['abortMultipartUpload']>
+	readonly bulkDownloadUrl?: NonNullable<FileBrowserAdapter<TMetadata>['bulkDownloadUrl']>
 
-	private readonly implementation?: FileBrowserAdapter
+	private readonly implementation?: FileBrowserAdapter<TMetadata>
 
 	constructor(
 		private readonly adapterName: CloudAdapterName,
-		options: CloudFileBrowserAdapterOptions = {}
+		options: CloudFileBrowserAdapterOptions<TMetadata> = {}
 	) {
 		this.implementation = options.implementation
 
@@ -69,7 +69,7 @@ export class UnsupportedCloudFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	list(path: string, opts?: FileBrowserListOptions): Promise<FileBrowserListResult> {
+	list(path: string, opts?: FileBrowserListOptions): Promise<FileBrowserListResult<TMetadata>> {
 		if (this.implementation) {
 			return this.implementation.list(path, opts)
 		}
@@ -94,7 +94,7 @@ export class UnsupportedCloudFileBrowserAdapter implements FileBrowserAdapter {
 		return Promise.reject(this.error('signedUrl'))
 	}
 
-	upload(path: string, file: File, opts?: FileBrowserUploadOptions): Promise<FileNode> {
+	upload(path: string, file: File, opts?: FileBrowserUploadOptions): Promise<FileNode<TMetadata>> {
 		if (this.implementation) {
 			return this.implementation.upload(path, file, opts)
 		}

@@ -28,14 +28,15 @@ export type InMemoryFileBrowserCapability =
 	| 'bulkDownloadUrl'
 	| 'multipart'
 
-export type InMemoryFileBrowserAdapterOptions = {
+export type InMemoryFileBrowserAdapterOptions<TMetadata = unknown> = {
 	capabilities?: Partial<Record<InMemoryFileBrowserCapability, boolean>>
+	initialEntries?: readonly FileNode<TMetadata>[]
 	multipartPartSize?: number
 	pageSize?: number
 	now?: () => Date
 }
 
-type InMemoryEntry = FileNode & {
+type InMemoryEntry<TMetadata> = FileNode<TMetadata> & {
 	blob?: Blob
 }
 
@@ -57,20 +58,20 @@ const DEFAULT_CAPABILITIES: Record<InMemoryFileBrowserCapability, boolean> = {
 	multipart: false
 }
 
-export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
-	readonly createFolder?: NonNullable<FileBrowserAdapter['createFolder']>
-	readonly rename?: NonNullable<FileBrowserAdapter['rename']>
-	readonly move?: NonNullable<FileBrowserAdapter['move']>
-	readonly copy?: NonNullable<FileBrowserAdapter['copy']>
-	readonly stat?: NonNullable<FileBrowserAdapter['stat']>
-	readonly exists?: NonNullable<FileBrowserAdapter['exists']>
-	readonly bulkDownloadUrl?: NonNullable<FileBrowserAdapter['bulkDownloadUrl']>
-	readonly createMultipartUpload?: NonNullable<FileBrowserAdapter['createMultipartUpload']>
-	readonly uploadPart?: NonNullable<FileBrowserAdapter['uploadPart']>
-	readonly completeMultipartUpload?: NonNullable<FileBrowserAdapter['completeMultipartUpload']>
-	readonly abortMultipartUpload?: NonNullable<FileBrowserAdapter['abortMultipartUpload']>
+export class InMemoryFileBrowserAdapter<TMetadata = unknown> implements FileBrowserAdapter<TMetadata> {
+	readonly createFolder?: NonNullable<FileBrowserAdapter<TMetadata>['createFolder']>
+	readonly rename?: NonNullable<FileBrowserAdapter<TMetadata>['rename']>
+	readonly move?: NonNullable<FileBrowserAdapter<TMetadata>['move']>
+	readonly copy?: NonNullable<FileBrowserAdapter<TMetadata>['copy']>
+	readonly stat?: NonNullable<FileBrowserAdapter<TMetadata>['stat']>
+	readonly exists?: NonNullable<FileBrowserAdapter<TMetadata>['exists']>
+	readonly bulkDownloadUrl?: NonNullable<FileBrowserAdapter<TMetadata>['bulkDownloadUrl']>
+	readonly createMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['createMultipartUpload']>
+	readonly uploadPart?: NonNullable<FileBrowserAdapter<TMetadata>['uploadPart']>
+	readonly completeMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['completeMultipartUpload']>
+	readonly abortMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['abortMultipartUpload']>
 
-	private readonly entries = new Map<string, InMemoryEntry>()
+	private readonly entries = new Map<string, InMemoryEntry<TMetadata>>()
 	private readonly multipartUploads = new Map<string, InMemoryMultipartUpload>()
 	private readonly multipartPartSize: number
 	private readonly pageSize?: number
@@ -78,7 +79,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 	private etagSequence = 0
 	private multipartSequence = 0
 
-	constructor(options: InMemoryFileBrowserAdapterOptions = {}) {
+	constructor(options: InMemoryFileBrowserAdapterOptions<TMetadata> = {}) {
 		const capabilities = {
 			...DEFAULT_CAPABILITIES,
 			...options.capabilities
@@ -93,6 +94,10 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 			kind: 'folder',
 			modifiedAt: this.timestamp()
 		})
+		for (const node of options.initialEntries ?? []) {
+			const normalized = normalizeFileBrowserPath(node.path)
+			this.entries.set(normalized, { ...node, path: normalized })
+		}
 
 		if (capabilities.createFolder) {
 			this.createFolder = this.createFolderEntry.bind(this)
@@ -130,7 +135,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult> {
+	list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult<TMetadata>> {
 		throwIfAborted(opts.signal)
 		const normalized = normalizeFileBrowserPath(path)
 		const folder = this.getEntry(normalized)
@@ -160,7 +165,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		})
 	}
 
-	private createFolderEntry(path: string): Promise<FileNode> {
+	private createFolderEntry(path: string): Promise<FileNode<TMetadata>> {
 		const normalized = normalizeFileBrowserPath(path)
 
 		if (normalized === ROOT_PATH) {
@@ -173,7 +178,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 
 		this.assertFolderExists(getFileBrowserDirname(normalized))
 
-		const entry: InMemoryEntry = {
+		const entry: InMemoryEntry<TMetadata> = {
 			path: normalized,
 			name: getFileBrowserBasename(normalized),
 			kind: 'folder',
@@ -213,7 +218,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		return Promise.resolve(URL.createObjectURL(entry.blob))
 	}
 
-	upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode> {
+	upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode<TMetadata>> {
 		throwIfAborted(opts.signal)
 		let normalized = normalizeFileBrowserPath(path)
 		this.assertFolderExists(getFileBrowserDirname(normalized))
@@ -229,7 +234,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		opts.onProgress?.(0, file.size)
 		throwIfAborted(opts.signal)
 
-		const entry: InMemoryEntry = {
+		const entry: InMemoryEntry<TMetadata> = {
 			path: normalized,
 			name: getFileBrowserBasename(normalized) || file.name,
 			kind: 'file',
@@ -264,7 +269,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		throw new FileBrowserAdapterError('conflict', `Could not allocate a unique file browser path for ${path}`)
 	}
 
-	private renameEntry(path: string, newName: string): Promise<FileNode> {
+	private renameEntry(path: string, newName: string): Promise<FileNode<TMetadata>> {
 		const normalized = normalizeFileBrowserPath(path)
 		const entry = this.getEntry(normalized)
 		const trimmedName = newName.trim()
@@ -273,7 +278,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 			throw new FileBrowserAdapterError('invalid_path', `Invalid file browser name: ${newName}`)
 		}
 
-		const updated: InMemoryEntry = {
+		const updated: InMemoryEntry<TMetadata> = {
 			...entry,
 			name: trimmedName,
 			modifiedAt: this.timestamp(),
@@ -296,7 +301,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		const normalizedToDir = normalizeFileBrowserPath(toDir)
 		this.assertFolderExists(normalizedToDir)
 
-		const copies = new Map<string, InMemoryEntry>()
+		const copies = new Map<string, InMemoryEntry<TMetadata>>()
 
 		for (const sourcePath of from.map(normalizeFileBrowserPath)) {
 			const source = this.getEntry(sourcePath)
@@ -326,7 +331,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		return Promise.resolve()
 	}
 
-	private statEntry(path: string): Promise<FileNode> {
+	private statEntry(path: string): Promise<FileNode<TMetadata>> {
 		return Promise.resolve(cloneNode(this.getEntry(path)))
 	}
 
@@ -392,7 +397,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		partNumber,
 		signal,
 		uploadId
-	}: Parameters<NonNullable<FileBrowserAdapter['uploadPart']>>[0]): Promise<{
+	}: Parameters<NonNullable<FileBrowserAdapter<TMetadata>['uploadPart']>>[0]): Promise<{
 		etag: string
 	}> {
 		return Promise.resolve().then(() => {
@@ -410,7 +415,9 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 	private completeMultipartUploadEntry({
 		parts,
 		uploadId
-	}: Parameters<NonNullable<FileBrowserAdapter['completeMultipartUpload']>>[0]): Promise<FileNode> {
+	}: Parameters<NonNullable<FileBrowserAdapter<TMetadata>['completeMultipartUpload']>>[0]): Promise<
+		FileNode<TMetadata>
+	> {
 		return Promise.resolve().then(() => {
 			const upload = this.getMultipartUpload(uploadId)
 			const blobs: Blob[] = []
@@ -428,7 +435,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 				throw new FileBrowserAdapterError('invalid_path', `Multipart upload ${uploadId} size mismatch`)
 			}
 
-			const entry: InMemoryEntry = {
+			const entry: InMemoryEntry<TMetadata> = {
 				path: upload.path,
 				name: getFileBrowserBasename(upload.path),
 				kind: 'file',
@@ -459,7 +466,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		return upload
 	}
 
-	private collectTree(path: string): InMemoryEntry[] {
+	private collectTree(path: string): InMemoryEntry<TMetadata>[] {
 		const normalized = normalizeFileBrowserPath(path)
 		return Array.from(this.entries.values())
 			.filter((entry) => isFileBrowserDescendantOrSelf(normalized, entry.path))
@@ -474,7 +481,7 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	private getEntry(path: string): InMemoryEntry {
+	private getEntry(path: string): InMemoryEntry<TMetadata> {
 		const normalized = normalizeFileBrowserPath(path)
 		const entry = this.entries.get(normalized)
 
@@ -495,17 +502,21 @@ export class InMemoryFileBrowserAdapter implements FileBrowserAdapter {
 	}
 }
 
-export function createInMemoryFileBrowserAdapter(
-	options?: InMemoryFileBrowserAdapterOptions
-): InMemoryFileBrowserAdapter {
-	return new InMemoryFileBrowserAdapter(options)
+export function createInMemoryFileBrowserAdapter<TMetadata = unknown>(
+	options?: InMemoryFileBrowserAdapterOptions<TMetadata>
+): InMemoryFileBrowserAdapter<TMetadata> {
+	return new InMemoryFileBrowserAdapter<TMetadata>(options)
 }
 
-function cloneNode(entry: InMemoryEntry): FileNode {
-	const node: FileNode = {
+function cloneNode<TMetadata>(entry: InMemoryEntry<TMetadata>): FileNode<TMetadata> {
+	const node: FileNode<TMetadata> = {
 		path: entry.path,
 		name: entry.name,
 		kind: entry.kind
+	}
+
+	if (entry.id !== undefined) {
+		node.id = entry.id
 	}
 
 	if (entry.size !== undefined) {
@@ -528,10 +539,14 @@ function cloneNode(entry: InMemoryEntry): FileNode {
 		node.thumbnailUrl = entry.thumbnailUrl
 	}
 
+	if (entry.metadata !== undefined) {
+		node.metadata = entry.metadata
+	}
+
 	return node
 }
 
-function compareEntries(left: InMemoryEntry, right: InMemoryEntry): number {
+function compareEntries<TMetadata>(left: InMemoryEntry<TMetadata>, right: InMemoryEntry<TMetadata>): number {
 	if (left.kind !== right.kind) {
 		return left.kind === 'folder' ? -1 : 1
 	}

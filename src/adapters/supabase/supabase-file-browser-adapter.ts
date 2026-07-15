@@ -43,7 +43,7 @@ export type SupabaseClientLike = {
 	}
 }
 
-export type SupabaseFileBrowserAdapterOptions = CloudFileBrowserAdapterOptions & {
+export type SupabaseFileBrowserAdapterOptions<TMetadata = unknown> = CloudFileBrowserAdapterOptions<TMetadata> & {
 	bucket?: string
 	client?: SupabaseClientLike
 	pageSize?: number
@@ -83,25 +83,25 @@ const DEFAULT_PAGE_SIZE = 100
 const DEFAULT_SIGNED_URL_EXPIRES_IN = 60 * 60
 const EMPTY_FOLDER_MARKER = '.emptyFolderPlaceholder'
 
-export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
-	createFolder?: NonNullable<FileBrowserAdapter['createFolder']>
-	rename?: NonNullable<FileBrowserAdapter['rename']>
-	move?: NonNullable<FileBrowserAdapter['move']>
-	copy?: NonNullable<FileBrowserAdapter['copy']>
-	stat?: NonNullable<FileBrowserAdapter['stat']>
-	exists?: NonNullable<FileBrowserAdapter['exists']>
-	createMultipartUpload?: NonNullable<FileBrowserAdapter['createMultipartUpload']>
-	uploadPart?: NonNullable<FileBrowserAdapter['uploadPart']>
-	completeMultipartUpload?: NonNullable<FileBrowserAdapter['completeMultipartUpload']>
-	abortMultipartUpload?: NonNullable<FileBrowserAdapter['abortMultipartUpload']>
-	bulkDownloadUrl?: NonNullable<FileBrowserAdapter['bulkDownloadUrl']>
+export class SupabaseStorageFileBrowserAdapter<TMetadata = unknown> implements FileBrowserAdapter<TMetadata> {
+	createFolder?: NonNullable<FileBrowserAdapter<TMetadata>['createFolder']>
+	rename?: NonNullable<FileBrowserAdapter<TMetadata>['rename']>
+	move?: NonNullable<FileBrowserAdapter<TMetadata>['move']>
+	copy?: NonNullable<FileBrowserAdapter<TMetadata>['copy']>
+	stat?: NonNullable<FileBrowserAdapter<TMetadata>['stat']>
+	exists?: NonNullable<FileBrowserAdapter<TMetadata>['exists']>
+	createMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['createMultipartUpload']>
+	uploadPart?: NonNullable<FileBrowserAdapter<TMetadata>['uploadPart']>
+	completeMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['completeMultipartUpload']>
+	abortMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['abortMultipartUpload']>
+	bulkDownloadUrl?: NonNullable<FileBrowserAdapter<TMetadata>['bulkDownloadUrl']>
 
-	private readonly delegate?: UnsupportedCloudFileBrowserAdapter
+	private readonly delegate?: UnsupportedCloudFileBrowserAdapter<TMetadata>
 	private readonly sdk?: SupabaseSdkConfig
 
-	constructor(options: SupabaseFileBrowserAdapterOptions = {}) {
+	constructor(options: SupabaseFileBrowserAdapterOptions<TMetadata> = {}) {
 		if (!options.client || !options.bucket) {
-			this.delegate = new UnsupportedCloudFileBrowserAdapter('Supabase', options)
+			this.delegate = new UnsupportedCloudFileBrowserAdapter<TMetadata>('Supabase', options)
 			this.createFolder = this.delegate.createFolder?.bind(this.delegate)
 			this.rename = this.delegate.rename?.bind(this.delegate)
 			this.move = this.delegate.move?.bind(this.delegate)
@@ -128,7 +128,7 @@ export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
 		this.exists = this.existsEntries.bind(this)
 	}
 
-	async list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult> {
+	async list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult<TMetadata>> {
 		if (!this.sdk) {
 			return this.delegate!.list(path, opts)
 		}
@@ -153,7 +153,7 @@ export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	private async createFolderEntry(path: string): Promise<FileNode> {
+	private async createFolderEntry(path: string): Promise<FileNode<TMetadata>> {
 		const sdk = this.sdk
 		if (!sdk) {
 			throw new FileBrowserAdapterError(
@@ -204,7 +204,7 @@ export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
 		return data.signedUrl
 	}
 
-	async upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode> {
+	async upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode<TMetadata>> {
 		if (!this.sdk) {
 			return this.delegate!.upload(path, file, opts)
 		}
@@ -230,7 +230,7 @@ export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	private async statEntry(path: string): Promise<FileNode> {
+	private async statEntry(path: string): Promise<FileNode<TMetadata>> {
 		const normalized = normalizeFileBrowserPath(path)
 		const parentKey = this.pathToKey(getFileBrowserDirname(normalized))
 		const basename = getFileBrowserBasename(normalized)
@@ -351,7 +351,7 @@ export class SupabaseStorageFileBrowserAdapter implements FileBrowserAdapter {
 		throw new FileBrowserAdapterError('conflict', `Could not allocate a unique file browser path for ${path}`)
 	}
 
-	private entryToNode(parentPath: string, entry: SupabaseListEntry): FileNode {
+	private entryToNode(parentPath: string, entry: SupabaseListEntry): FileNode<TMetadata> {
 		const path = joinFileBrowserPath(parentPath, entry.name)
 		if (isSupabaseFolder(entry)) {
 			return {

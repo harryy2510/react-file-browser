@@ -28,7 +28,7 @@ export type S3CompatibleClient = {
 	send(command: object): Promise<unknown>
 }
 
-export type S3CompatibleFileBrowserAdapterOptions = CloudFileBrowserAdapterOptions & {
+export type S3CompatibleFileBrowserAdapterOptions<TMetadata = unknown> = CloudFileBrowserAdapterOptions<TMetadata> & {
 	bucket?: string
 	client?: S3CompatibleClient
 	multipartPartSize?: number
@@ -84,26 +84,26 @@ type S3MultipartSession = {
 const DEFAULT_SIGNED_URL_EXPIRES_IN = 60 * 60
 const DEFAULT_MULTIPART_PART_SIZE = 8 * 1024 * 1024
 
-export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
-	createFolder?: NonNullable<FileBrowserAdapter['createFolder']>
-	rename?: NonNullable<FileBrowserAdapter['rename']>
-	move?: NonNullable<FileBrowserAdapter['move']>
-	copy?: NonNullable<FileBrowserAdapter['copy']>
-	stat?: NonNullable<FileBrowserAdapter['stat']>
-	exists?: NonNullable<FileBrowserAdapter['exists']>
-	createMultipartUpload?: NonNullable<FileBrowserAdapter['createMultipartUpload']>
-	uploadPart?: NonNullable<FileBrowserAdapter['uploadPart']>
-	completeMultipartUpload?: NonNullable<FileBrowserAdapter['completeMultipartUpload']>
-	abortMultipartUpload?: NonNullable<FileBrowserAdapter['abortMultipartUpload']>
-	bulkDownloadUrl?: NonNullable<FileBrowserAdapter['bulkDownloadUrl']>
+export class S3CompatibleFileBrowserAdapter<TMetadata = unknown> implements FileBrowserAdapter<TMetadata> {
+	createFolder?: NonNullable<FileBrowserAdapter<TMetadata>['createFolder']>
+	rename?: NonNullable<FileBrowserAdapter<TMetadata>['rename']>
+	move?: NonNullable<FileBrowserAdapter<TMetadata>['move']>
+	copy?: NonNullable<FileBrowserAdapter<TMetadata>['copy']>
+	stat?: NonNullable<FileBrowserAdapter<TMetadata>['stat']>
+	exists?: NonNullable<FileBrowserAdapter<TMetadata>['exists']>
+	createMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['createMultipartUpload']>
+	uploadPart?: NonNullable<FileBrowserAdapter<TMetadata>['uploadPart']>
+	completeMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['completeMultipartUpload']>
+	abortMultipartUpload?: NonNullable<FileBrowserAdapter<TMetadata>['abortMultipartUpload']>
+	bulkDownloadUrl?: NonNullable<FileBrowserAdapter<TMetadata>['bulkDownloadUrl']>
 
-	private readonly delegate?: UnsupportedCloudFileBrowserAdapter
+	private readonly delegate?: UnsupportedCloudFileBrowserAdapter<TMetadata>
 	private readonly multipartSessions = new Map<string, S3MultipartSession>()
 	private readonly sdk?: S3SdkConfig
 
-	constructor(adapterName: CloudAdapterName, options: S3CompatibleFileBrowserAdapterOptions = {}) {
+	constructor(adapterName: CloudAdapterName, options: S3CompatibleFileBrowserAdapterOptions<TMetadata> = {}) {
 		if (!options.client || !options.bucket) {
-			this.delegate = new UnsupportedCloudFileBrowserAdapter(adapterName, options)
+			this.delegate = new UnsupportedCloudFileBrowserAdapter<TMetadata>(adapterName, options)
 			this.createFolder = this.delegate.createFolder?.bind(this.delegate)
 			this.rename = this.delegate.rename?.bind(this.delegate)
 			this.move = this.delegate.move?.bind(this.delegate)
@@ -135,7 +135,7 @@ export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
 		this.abortMultipartUpload = this.abortMultipartUploadEntry.bind(this)
 	}
 
-	async list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult> {
+	async list(path: string, opts: FileBrowserListOptions = {}): Promise<FileBrowserListResult<TMetadata>> {
 		if (!this.sdk) {
 			return this.delegate!.list(path, opts)
 		}
@@ -190,7 +190,7 @@ export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	private async createFolderEntry(path: string): Promise<FileNode> {
+	private async createFolderEntry(path: string): Promise<FileNode<TMetadata>> {
 		const sdk = this.sdk
 		if (!sdk) {
 			throw new FileBrowserAdapterError(
@@ -257,7 +257,7 @@ export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
 		)
 	}
 
-	async upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode> {
+	async upload(path: string, file: File, opts: FileBrowserUploadOptions = {}): Promise<FileNode<TMetadata>> {
 		if (!this.sdk) {
 			return this.delegate!.upload(path, file, opts)
 		}
@@ -287,7 +287,7 @@ export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
 		}
 	}
 
-	private async statEntry(path: string): Promise<FileNode> {
+	private async statEntry(path: string): Promise<FileNode<TMetadata>> {
 		const normalized = normalizeFileBrowserPath(path)
 		const key = this.pathToKey(normalized)
 
@@ -435,7 +435,7 @@ export class S3CompatibleFileBrowserAdapter implements FileBrowserAdapter {
 	}: {
 		uploadId: string
 		parts: MultipartUploadPart[]
-	}): Promise<FileNode> {
+	}): Promise<FileNode<TMetadata>> {
 		const session = this.getMultipartSession(uploadId)
 		const response = await this.send<S3PutResponse>(
 			new CompleteMultipartUploadCommand({

@@ -27,6 +27,8 @@ S3, Cloudflare R2, Supabase Storage, an in-memory store, or any backend you impl
   zip from signed URLs.
 - **Upload policies** — reject files by MIME type, size, remaining quota, or a custom validator before
   they enqueue.
+- **Host extension points** — controlled path and search state, opaque item ids, typed metadata,
+  custom item/details rendering, conflict policy, and custom empty states.
 - **Themeable** with CSS variables that inherit your Tailwind v4 / design-system tokens. No global CSS
   shipped.
 - **Read-only mode**, comfortable/compact density, ESM-only, fully typed.
@@ -61,6 +63,56 @@ export function App() {
 `FileBrowserProvider` belongs above your router. It owns the session-scoped `TransferManager`, the
 floating transfer widget, and the refresh guard. `FileBrowser` can mount on any page or modal and can
 unmount while transfers keep running.
+
+### Host integration
+
+`FileNode.path` remains the immutable storage key used by browser operations. Hosts can additionally
+provide an opaque `id` and typed, sanitized metadata for domain-specific routes and rendering:
+
+```tsx
+import type { FileBrowserAdapter } from "@harryy/react-file-browser";
+import { FileBrowser } from "@harryy/react-file-browser";
+
+type IndexingMetadata = {
+  indexingStatus: "pending" | "ready" | "failed";
+  indexingError?: string;
+};
+
+declare const adapter: FileBrowserAdapter<IndexingMetadata>;
+
+<FileBrowser<IndexingMetadata>
+  adapter={adapter}
+  rootLabel="Knowledge base"
+  path={path}
+  onPathChange={(nextPath, context) => {
+    if (context.source === "item" && context.item.id) {
+      navigateToFolder(context.item.id);
+    }
+    setPath(nextPath);
+  }}
+  searchQuery={searchQuery}
+  onSearchQueryChange={setSearchQuery}
+  renderItemMeta={(item) =>
+    item.metadata ? <IndexingStatus status={item.metadata.indexingStatus} /> : null
+  }
+  renderDetailsContent={(item, defaultContent) => (
+    <>
+      {defaultContent}
+      {item.metadata ? <IndexingDetails metadata={item.metadata} /> : null}
+    </>
+  )}
+  uploadConflictResolutions={["keep-both", "skip"]}
+  allowClientZipFallback={false}
+/>;
+```
+
+`onPathChange` receives the target `FileNode` for item-originated folder navigation. Breadcrumb and
+programmatic navigation may not have a node. Externally changing controlled `path` or `searchQuery`
+updates the browser without firing the corresponding change callback again.
+
+Controlled search does not require putting the query in the URL. Hosts handling sensitive filenames or
+search terms should keep that state out of URLs, analytics, and other durable history surfaces unless
+their data policy explicitly permits it.
 
 ## Mount points
 
@@ -151,18 +203,30 @@ or `bulkDownloadUrl`, those controls are hidden. Recursive folder drops are reje
 | --- | --- | --- | --- |
 | `adapter` | `FileBrowserAdapter` | — (required) | Storage backend. |
 | `initialPath` | `string` | `"/"` | Directory to open on mount. |
+| `path` | `string` | None | Controlled current directory. |
+| `onPathChange` | `(path, context) => void` | None | Receives item, breadcrumb, and programmatic navigation. |
+| `searchQuery` | `string` | None | Controlled local search query. |
+| `initialSearchQuery` | `string` | `""` | Initial uncontrolled search query. |
+| `onSearchQueryChange` | `(query) => void` | None | Receives user-driven search changes. |
 | `density` | `"comfortable" \| "compact"` | `"comfortable"` | Row/tile density. |
 | `readOnly` | `boolean` | `false` | Hides all mutating affordances. |
 | `showDetailsPanel` | `boolean` | `true` | Toggles the right-hand details panel. |
-| `uploadPolicy` | `FileBrowserUploadPolicy` | — | Reject files before they enqueue. |
-| `warnZipSizeBytes` | `number` | — | Warn before building a large client-side zip. |
+| `uploadPolicy` | `FileBrowserUploadPolicy` | None | Reject files before they enqueue. |
+| `uploadConflictResolutions` | `FileBrowserUploadConflictResolution[]` | all | Allowed conflict-dialog actions. |
+| `allowClientZipFallback` | `boolean` | `true` | Allows browser-built ZIPs when no server ZIP exists. |
+| `warnZipSizeBytes` | `number` | None | Warn before building a large client-side zip. |
+| `rootLabel` | `string` | `"Files"` | Root breadcrumb and navigation label. |
+| `emptyState` | `{ title: ReactNode; description?: ReactNode }` | built in | Empty-folder content. |
+| `renderItemMeta` | `(item, { view }) => ReactNode` | None | Host metadata below grid/list item names. |
+| `renderDetailsContent` | `(item, defaultContent) => ReactNode` | None | Extends single-item details. |
+| `className` | `string` | None | Class name merged onto the root browser surface. |
 
 ### `<FileBrowserProvider>` props
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `manager` | `TransferManager` | auto-created | Bring your own transfer manager. |
-| `options` | `TransferManagerOptions` | — | Storage, storage key, id factory, clock. |
+| `options` | `TransferManagerOptions` | — | Storage, concurrency, storage key, id factory, clock. |
 | `resolveRestoredUpload` | `(upload) => ... \| undefined` | — | Reattach a `File` when resuming after reload. |
 | `showFloatingWidget` | `boolean` | `true` | Toggles the floating transfer widget. |
 
@@ -182,6 +246,9 @@ bulk failures so successful paths stay applied and failed paths roll back.
 
 `useFileBrowser({ adapter, initialPath })` exposes the full state and actions if you want to build your
 own UI. The `FileBrowser` component is a consumer of this hook.
+
+It also accepts controlled `path`, `searchQuery`, and their change callbacks. `navigate(path)` emits a
+`programmatic` path-change source, while `open(folder)` emits the complete target item.
 
 ### Entry points
 
@@ -216,16 +283,35 @@ documents every token and its default.
 - `readOnly` hides upload, create, rename, move, copy, and delete affordances while keeping browsing,
   preview, details, and download available.
 - `uploadPolicy` can reject files before enqueueing transfers by MIME type, extension, max file size,
-  remaining quota, or a custom validator. Rejections render as an alert and valid files in the same
-  batch still upload.
+  remaining quota, maximum files per batch, or a custom validator. A batch over `maxFilesPerBatch` is
+  rejected before folders are created or transfers enqueue. Other rejections render as an alert and
+  valid files in the same batch still upload.
 - Upload conflicts surface a replace / keep both / skip dialog with apply-to-all support.
 - Partial bulk failures can be reported with `FileBrowserBulkActionError`; successful paths stay
   applied and failed paths are surfaced in a dialog.
 - Single-file download uses `signedUrl`. Folder and multi-select bulk download uses `bulkDownloadUrl`
   when present, otherwise it builds a client zip from signed URLs after the configured size warning.
+  Set `allowClientZipFallback={false}` to require server ZIP support for folder and multi-file download.
 - Move-capable adapters enable the destination tree picker, Cut/Paste, and drag onto folders.
 - Keyboard shortcuts include Enter preview/open, F2 rename, Delete confirm, Cmd/Ctrl+A selection, and
   Cmd/Ctrl+C/X/V for adapter-gated copy, cut, and paste.
+
+### Transfer persistence and concurrency
+
+Provider-owned managers use `window.localStorage` by default so resumable state can survive a refresh.
+Set `options={{ storage: null }}` to keep transfer state in memory only. This preserves transfers across
+SPA navigation and browser unmounts but writes no filenames, paths, results, or metadata to durable web
+storage. Transfer persistence serializes only the fields needed to restore transfer status and resume
+multipart work; arbitrary `FileNode.metadata` is never persisted.
+
+Set `maxConcurrentUploads` in provider options to bound active uploads across every browser using that
+provider. Queued, resumed, and restored uploads share the same limit:
+
+```tsx
+<FileBrowserProvider options={{ maxConcurrentUploads: MAX_CONCURRENT_UPLOADS, storage: null }}>
+  <App />
+</FileBrowserProvider>
+```
 
 ## Required backend lifecycle
 

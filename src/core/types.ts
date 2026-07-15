@@ -1,6 +1,7 @@
 export type FileNodeKind = 'file' | 'folder'
 
-export type FileNode = {
+export type FileNode<TMetadata = unknown> = {
+	id?: string
 	path: string
 	name: string
 	kind: FileNodeKind
@@ -9,6 +10,7 @@ export type FileNode = {
 	modifiedAt?: string
 	etag?: string
 	thumbnailUrl?: string
+	metadata?: TMetadata
 }
 
 export type FileBrowserListOptions = {
@@ -16,8 +18,8 @@ export type FileBrowserListOptions = {
 	signal?: AbortSignal
 }
 
-export type FileBrowserListResult = {
-	items: FileNode[]
+export type FileBrowserListResult<TMetadata = unknown> = {
+	items: FileNode<TMetadata>[]
 	cursor?: string
 }
 
@@ -32,17 +34,17 @@ export type MultipartUploadPart = {
 	etag: string
 }
 
-export type FileBrowserAdapter = {
-	list(path: string, opts?: FileBrowserListOptions): Promise<FileBrowserListResult>
-	createFolder?(path: string): Promise<FileNode>
+export type FileBrowserAdapter<TMetadata = unknown> = {
+	list(path: string, opts?: FileBrowserListOptions): Promise<FileBrowserListResult<TMetadata>>
+	createFolder?(path: string): Promise<FileNode<TMetadata>>
 	delete(paths: string[]): Promise<void>
 	signedUrl(path: string): Promise<string>
-	upload(path: string, file: File, opts?: FileBrowserUploadOptions): Promise<FileNode>
+	upload(path: string, file: File, opts?: FileBrowserUploadOptions): Promise<FileNode<TMetadata>>
 
-	rename?(path: string, newName: string): Promise<FileNode>
+	rename?(path: string, newName: string): Promise<FileNode<TMetadata>>
 	move?(from: string[], toDir: string): Promise<void>
 	copy?(from: string[], toDir: string): Promise<void>
-	stat?(path: string): Promise<FileNode>
+	stat?(path: string): Promise<FileNode<TMetadata>>
 	exists?(paths: string[]): Promise<Record<string, boolean>>
 
 	createMultipartUpload?(path: string, size: number): Promise<{ uploadId: string; partSize: number }>
@@ -53,7 +55,7 @@ export type FileBrowserAdapter = {
 		signal?: AbortSignal
 		onProgress?: (loaded: number) => void
 	}): Promise<{ etag: string }>
-	completeMultipartUpload?(args: { uploadId: string; parts: MultipartUploadPart[] }): Promise<FileNode>
+	completeMultipartUpload?(args: { uploadId: string; parts: MultipartUploadPart[] }): Promise<FileNode<TMetadata>>
 	abortMultipartUpload?(uploadId: string): Promise<void>
 
 	bulkDownloadUrl?(paths: string[]): Promise<{ url: string; expiresAt: string }>

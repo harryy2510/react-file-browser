@@ -24,21 +24,36 @@ export type FileBrowserCapabilities = {
 	bulkDownload: boolean
 }
 
-export type UseFileBrowserOptions = {
-	adapter: FileBrowserAdapter
+export type FileBrowserPathChangeContext<TMetadata = unknown> =
+	| {
+			source: 'item'
+			item: FileNode<TMetadata>
+	  }
+	| {
+			source: 'breadcrumb' | 'programmatic'
+			item?: FileNode<TMetadata>
+	  }
+
+export type UseFileBrowserOptions<TMetadata = unknown> = {
+	adapter: FileBrowserAdapter<TMetadata>
+	path?: string
 	initialPath?: string
+	onPathChange?: (path: string, context: FileBrowserPathChangeContext<TMetadata>) => void
+	searchQuery?: string
+	initialSearchQuery?: string
+	onSearchQueryChange?: (query: string) => void
 }
 
-export type UseFileBrowserResult = {
-	adapter: FileBrowserAdapter
+export type UseFileBrowserResult<TMetadata = unknown> = {
+	adapter: FileBrowserAdapter<TMetadata>
 	capabilities: FileBrowserCapabilities
 	currentPath: string
 	status: FileBrowserStatus
-	items: FileNode[]
+	items: FileNode<TMetadata>[]
 	error: Error | null
 	hasMore: boolean
 	selectedPaths: string[]
-	selectedItems: FileNode[]
+	selectedItems: FileNode<TMetadata>[]
 	focusedPath: string | null
 	clipboard: FileBrowserClipboard
 	view: FileBrowserView
@@ -46,7 +61,7 @@ export type UseFileBrowserResult = {
 	filterKind: FileBrowserKindFilter
 	sortBy: 'name' | 'modifiedAt' | 'size'
 	sortDirection: 'asc' | 'desc'
-	filteredItems: FileNode[]
+	filteredItems: FileNode<TMetadata>[]
 	setView: Dispatch<SetStateAction<FileBrowserView>>
 	setSearchQuery: Dispatch<SetStateAction<string>>
 	setFilterKind: Dispatch<SetStateAction<FileBrowserKindFilter>>
@@ -54,16 +69,16 @@ export type UseFileBrowserResult = {
 	setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>
 	refresh: () => Promise<void>
 	loadMore: () => Promise<void>
-	navigate: (path: string) => Promise<void>
-	open: (node: FileNode) => Promise<void>
+	navigate: (path: string, context?: FileBrowserPathChangeContext<TMetadata>) => Promise<void>
+	open: (node: FileNode<TMetadata>) => Promise<void>
 	selectOnly: (path: string) => void
 	toggleSelection: (path: string) => void
 	selectRange: (path: string) => void
 	setSelection: (paths: string[], options?: { additive?: boolean }) => void
 	selectAllLoaded: () => void
 	clearSelection: () => void
-	createFolder: (name: string) => Promise<FileNode>
-	rename: (path: string, newName: string) => Promise<FileNode>
+	createFolder: (name: string) => Promise<FileNode<TMetadata>>
+	rename: (path: string, newName: string) => Promise<FileNode<TMetadata>>
 	deleteSelected: () => Promise<void>
 	deletePaths: (paths: string[]) => Promise<void>
 	movePathsTo: (paths: string[], toDir: string) => Promise<void>
@@ -71,13 +86,23 @@ export type UseFileBrowserResult = {
 	copySelection: (paths?: string[]) => void
 	cutSelection: (paths?: string[]) => void
 	pasteInto: (toDir: string) => Promise<void>
-	uploadFiles: (files: File[] | FileList, options?: FileBrowserUploadFilesOptions) => Promise<FileNode[]>
+	uploadFiles: (files: File[] | FileList, options?: FileBrowserUploadFilesOptions) => Promise<FileNode<TMetadata>[]>
 }
 
-export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOptions): UseFileBrowserResult {
-	const [currentPath, setCurrentPath] = useState(() => normalizeFileBrowserPath(initialPath))
+export function useFileBrowser<TMetadata = unknown>({
+	adapter,
+	path,
+	initialPath = '/',
+	onPathChange,
+	searchQuery: controlledSearchQuery,
+	initialSearchQuery = '',
+	onSearchQueryChange
+}: UseFileBrowserOptions<TMetadata>): UseFileBrowserResult<TMetadata> {
+	const controlledPath = path === undefined ? undefined : normalizeFileBrowserPath(path)
+	const [uncontrolledPath, setUncontrolledPath] = useState(() => normalizeFileBrowserPath(initialPath))
+	const currentPath = controlledPath ?? uncontrolledPath
 	const [status, setStatus] = useState<FileBrowserStatus>('loading')
-	const [items, setItems] = useState<FileNode[]>([])
+	const [items, setItems] = useState<FileNode<TMetadata>[]>([])
 	const [cursor, setCursor] = useState<string | undefined>()
 	const [error, setError] = useState<Error | null>(null)
 	const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -85,12 +110,28 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 	const [rangeAnchor, setRangeAnchor] = useState<string | null>(null)
 	const [clipboard, setClipboard] = useState<FileBrowserClipboard>(null)
 	const [view, setView] = useState<FileBrowserView>('grid')
-	const [searchQuery, setSearchQuery] = useState('')
+	const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState(initialSearchQuery)
+	const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery
 	const [filterKind, setFilterKind] = useState<FileBrowserKindFilter>('all')
 	const [sortBy, setSortBy] = useState<'name' | 'modifiedAt' | 'size'>('name')
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 	const requestIdRef = useRef(0)
 	const currentPathRef = useRef(currentPath)
+	const cursorRef = useRef<string | undefined>(undefined)
+	const searchQueryRef = useRef(searchQuery)
+	searchQueryRef.current = searchQuery
+
+	const setSearchQuery = useCallback<Dispatch<SetStateAction<string>>>(
+		(nextQuery) => {
+			const resolved = typeof nextQuery === 'function' ? nextQuery(searchQueryRef.current) : nextQuery
+			searchQueryRef.current = resolved
+			if (controlledSearchQuery === undefined) {
+				setUncontrolledSearchQuery(resolved)
+			}
+			onSearchQueryChange?.(resolved)
+		},
+		[controlledSearchQuery, onSearchQueryChange]
+	)
 
 	const capabilities = useMemo<FileBrowserCapabilities>(
 		() => ({
@@ -130,7 +171,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 
 			try {
 				const result = await adapter.list(normalized, {
-					cursor: mode === 'append' ? cursor : undefined
+					cursor: mode === 'append' ? cursorRef.current : undefined
 				})
 
 				if (requestId !== requestIdRef.current) {
@@ -138,6 +179,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 				}
 
 				setItems((current) => (mode === 'append' ? mergeItems(current, result.items) : result.items))
+				cursorRef.current = result.cursor
 				setCursor(result.cursor)
 				setStatus('ready')
 			} catch (caught) {
@@ -149,7 +191,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 				setStatus('error')
 			}
 		},
-		[adapter, cursor]
+		[adapter]
 	)
 
 	const refresh = useCallback(async () => {
@@ -157,17 +199,27 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 	}, [currentPath, loadPath])
 
 	const navigate = useCallback(
-		async (path: string) => {
-			const normalized = normalizeFileBrowserPath(path)
+		async (nextPath: string, context: FileBrowserPathChangeContext<TMetadata> = { source: 'programmatic' }) => {
+			const normalized = normalizeFileBrowserPath(nextPath)
+			if (normalized === currentPathRef.current) {
+				return
+			}
+
+			onPathChange?.(normalized, context)
+			if (controlledPath !== undefined) {
+				return
+			}
+
 			currentPathRef.current = normalized
-			setCurrentPath(normalized)
+			setUncontrolledPath(normalized)
 			setSelected(new Set())
 			setFocusedPath(null)
 			setRangeAnchor(null)
+			cursorRef.current = undefined
 			setCursor(undefined)
 			await loadPath(normalized, 'replace')
 		},
-		[loadPath]
+		[controlledPath, loadPath, onPathChange]
 	)
 
 	const loadMore = useCallback(async () => {
@@ -179,11 +231,20 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 	}, [currentPath, cursor, loadPath, status])
 
 	useEffect(() => {
-		void Promise.resolve().then(() => loadPath(currentPath, 'replace'))
-		// The initial adapter load is intentionally scoped to adapter replacement.
-		// Navigation calls loadPath directly after updating currentPath.
+		const nextPath = currentPath
+		if (nextPath !== currentPathRef.current) {
+			currentPathRef.current = nextPath
+			setSelected(new Set())
+			setFocusedPath(null)
+			setRangeAnchor(null)
+		}
+		cursorRef.current = undefined
+		setCursor(undefined)
+		void Promise.resolve().then(() => loadPath(nextPath, 'replace'))
+		// Uncontrolled navigation loads directly. This effect handles adapter
+		// replacement and externally controlled path changes only.
 		// oxlint-disable-next-line react/exhaustive-deps
-	}, [adapter])
+	}, [adapter, controlledPath])
 
 	const selectOnly = useCallback((path: string) => {
 		const normalized = normalizeFileBrowserPath(path)
@@ -253,9 +314,9 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 	}, [])
 
 	const open = useCallback(
-		async (node: FileNode) => {
+		async (node: FileNode<TMetadata>) => {
 			if (node.kind === 'folder') {
-				await navigate(node.path)
+				await navigate(node.path, { source: 'item', item: node })
 			} else {
 				selectOnly(node.path)
 			}
@@ -269,7 +330,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 				throw new FileBrowserAdapterError('not_supported', 'Folder creation is not supported by this adapter')
 			}
 			const path = joinFileBrowserPath(currentPath, name.trim())
-			const optimistic: FileNode = {
+			const optimistic: FileNode<TMetadata> = {
 				path,
 				name: name.trim(),
 				kind: 'folder',
@@ -458,7 +519,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 			}
 
 			const fileArray = Array.from(files)
-			const uploaded: FileNode[] = []
+			const uploaded: FileNode<TMetadata>[] = []
 
 			for (const file of fileArray) {
 				const path = joinFileBrowserPath(currentPathRef.current, file.name)
@@ -520,7 +581,7 @@ export function useFileBrowser({ adapter, initialPath = '/' }: UseFileBrowserOpt
 	}
 }
 
-function mergeItems(current: FileNode[], incoming: FileNode[]): FileNode[] {
+function mergeItems<TMetadata>(current: FileNode<TMetadata>[], incoming: FileNode<TMetadata>[]): FileNode<TMetadata>[] {
 	const map = new Map(current.map((item) => [item.path, item]))
 	for (const item of incoming) {
 		map.set(item.path, item)
@@ -528,14 +589,14 @@ function mergeItems(current: FileNode[], incoming: FileNode[]): FileNode[] {
 	return Array.from(map.values()).sort((left, right) => compareNodes(left, right, 'name', 'asc'))
 }
 
-function removePaths(items: FileNode[], paths: string[]): FileNode[] {
+function removePaths<TMetadata>(items: FileNode<TMetadata>[], paths: string[]): FileNode<TMetadata>[] {
 	const remove = new Set(paths)
 	return items.filter((item) => !remove.has(item.path))
 }
 
-function compareNodes(
-	left: FileNode,
-	right: FileNode,
+function compareNodes<TMetadata>(
+	left: FileNode<TMetadata>,
+	right: FileNode<TMetadata>,
 	sortBy: 'name' | 'modifiedAt' | 'size',
 	direction: 'asc' | 'desc'
 ): number {

@@ -18,12 +18,17 @@ import {
 	X as XIcon
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent } from 'react'
+import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import Selecto from 'react-selecto'
 import type { OnSelect } from 'react-selecto'
 import type { FileBrowserDensity } from '../theme'
 import { useFileBrowser } from '../core/use-file-browser'
-import type { FileBrowserUploadConflictResolution } from '../core/use-file-browser'
+import type {
+	FileBrowserPathChangeContext,
+	FileBrowserUploadConflictResolution,
+	FileBrowserView,
+	UseFileBrowserResult
+} from '../core/use-file-browser'
 import { getFileBrowserDirname, joinFileBrowserPath, normalizeFileBrowserPath } from '../core/path'
 import { FileBrowserAdapterError, FileBrowserBulkActionError } from '../core/types'
 import type { FileBrowserAdapter, FileNode } from '../core/types'
@@ -32,18 +37,34 @@ import type { FileBrowserUploadCandidate } from '../core/upload-drop'
 import { useTransferSnapshot, useTransfers } from '../transfers/file-browser-provider'
 import type { UploadTransferGroup } from '../transfers/transfer-manager'
 
-export type FileBrowserProps = {
-	adapter: FileBrowserAdapter
+export type FileBrowserProps<TMetadata = unknown> = {
+	adapter: FileBrowserAdapter<TMetadata>
+	className?: string
+	emptyState?: {
+		title: ReactNode
+		description?: ReactNode
+	}
 	initialPath?: string
+	path?: string
+	onPathChange?: (path: string, context: FileBrowserPathChangeContext<TMetadata>) => void
+	rootLabel?: string
+	searchQuery?: string
+	initialSearchQuery?: string
+	onSearchQueryChange?: (query: string) => void
 	density?: FileBrowserDensity
 	readOnly?: boolean
 	showDetailsPanel?: boolean
 	uploadPolicy?: FileBrowserUploadPolicy
+	uploadConflictResolutions?: readonly FileBrowserUploadConflictResolution[]
+	allowClientZipFallback?: boolean
+	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
+	renderDetailsContent?: (item: FileNode<TMetadata>, defaultContent: ReactNode) => ReactNode
 	warnZipSizeBytes?: number
 }
 
 export type FileBrowserUploadPolicy = {
 	allowedMimeTypes?: string[]
+	maxFilesPerBatch?: number
 	maxFileSizeBytes?: number
 	remainingQuotaBytes?: number
 	validate?: (
@@ -61,10 +82,10 @@ export type FileBrowserUploadRejection = {
 	reasons: string[]
 }
 
-type ContextMenuState =
+type ContextMenuState<TMetadata = unknown> =
 	| {
 			target: 'item'
-			item: FileNode
+			item: FileNode<TMetadata>
 			x: number
 			y: number
 			mode?: 'context' | 'sheet'
@@ -91,8 +112,8 @@ type MoveDestination = {
 
 type MoveDestinationStatus = 'idle' | 'loading' | 'ready' | 'error'
 
-type PreviewState = {
-	item: FileNode
+type PreviewState<TMetadata = unknown> = {
+	item: FileNode<TMetadata>
 	status: 'loading' | 'ready' | 'error'
 	url?: string
 	error?: string
@@ -105,6 +126,11 @@ const CONTROL_MOTION =
 	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
 const SURFACE_MOTION =
 	'transition-[background-color,border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none'
+const DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS = [
+	'skip',
+	'replace',
+	'keep-both'
+] as const satisfies readonly FileBrowserUploadConflictResolution[]
 
 // Density drives layout scale through CSS variables set inline on the root, so the effect works for
 // every consumer without shipping global CSS. Classes below reference these vars (e.g. h-[var(--fb-control-h)]).
@@ -139,43 +165,65 @@ const DENSITY_STYLES: Record<FileBrowserDensity, CSSProperties> = {
 	} as CSSProperties
 }
 
-export function FileBrowser({
+export function FileBrowser<TMetadata = unknown>({
 	adapter,
+	className,
+	emptyState,
 	initialPath = '/',
+	path,
+	onPathChange,
+	rootLabel = 'Files',
+	searchQuery,
+	initialSearchQuery,
+	onSearchQueryChange,
 	density = 'comfortable',
 	readOnly = false,
 	showDetailsPanel = true,
 	uploadPolicy,
+	uploadConflictResolutions,
+	allowClientZipFallback = true,
+	renderItemMeta,
+	renderDetailsContent,
 	warnZipSizeBytes
-}: FileBrowserProps) {
-	const browser = useFileBrowser({ adapter, initialPath })
+}: FileBrowserProps<TMetadata>) {
+	const browser = useFileBrowser<TMetadata>({
+		adapter,
+		initialPath,
+		path,
+		onPathChange,
+		searchQuery,
+		initialSearchQuery,
+		onSearchQueryChange
+	})
 	const transfers = useTransfers()
 	const transferSnapshot = useTransferSnapshot()
 	const [newFolderOpen, setNewFolderOpen] = useState(false)
 	const [newFolderName, setNewFolderName] = useState('')
 	const [newFolderError, setNewFolderError] = useState<string | null>(null)
-	const [renameItem, setRenameItem] = useState<FileNode | null>(null)
+	const [renameItem, setRenameItem] = useState<FileNode<TMetadata> | null>(null)
 	const [renameValue, setRenameValue] = useState('')
 	const [renameError, setRenameError] = useState<string | null>(null)
-	const [inlineRenameItem, setInlineRenameItem] = useState<FileNode | null>(null)
+	const [inlineRenameItem, setInlineRenameItem] = useState<FileNode<TMetadata> | null>(null)
 	const [inlineRenameValue, setInlineRenameValue] = useState('')
 	const [inlineRenameError, setInlineRenameError] = useState<string | null>(null)
 	const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 	const [moveDialogOpen, setMoveDialogOpen] = useState(false)
 	const [bulkFailure, setBulkFailure] = useState<FileBrowserBulkActionError | null>(null)
-	const [moveDestination, setMoveDestination] = useState(initialPath)
+	const [moveDestination, setMoveDestination] = useState(path ?? initialPath)
 	const [moveDestinations, setMoveDestinations] = useState<MoveDestination[]>([])
 	const [moveDestinationStatus, setMoveDestinationStatus] = useState<MoveDestinationStatus>('idle')
 	const [moveDestinationError, setMoveDestinationError] = useState<string | null>(null)
-	const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+	const [contextMenu, setContextMenu] = useState<ContextMenuState<TMetadata> | null>(null)
 	const [uploadConflictQueue, setUploadConflictQueue] = useState<UploadConflictQueue | null>(null)
 	const [uploadRejections, setUploadRejections] = useState<FileBrowserUploadRejection[]>([])
 	const [applyUploadResolution, setApplyUploadResolution] = useState(false)
 	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null)
 	const [dropActive, setDropActive] = useState(false)
-	const [preview, setPreview] = useState<PreviewState | null>(null)
+	const [folderDropTargetPath, setFolderDropTargetPath] = useState<string | null>(null)
+	const [preview, setPreview] = useState<PreviewState<TMetadata> | null>(null)
 	const rootRef = useRef<HTMLElement | null>(null)
 	const uploadInputRef = useRef<HTMLInputElement | null>(null)
+	const draggedItemPathsRef = useRef<string[]>([])
 	const pendingSelectedItemUnselectRef = useRef<{
 		path: string
 		timeoutId: ReturnType<typeof setTimeout>
@@ -184,12 +232,18 @@ export function FileBrowser({
 	const doubleClickOpenPathRef = useRef<string | null>(null)
 	const refreshedUploadIdsRef = useRef<Set<string>>(new Set())
 	const selected = browser.selectedItems.at(0) ?? null
+	const allowedUploadConflictResolutions = useMemo(
+		() => normalizeUploadConflictResolutions(uploadConflictResolutions ?? DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS),
+		[uploadConflictResolutions]
+	)
+	const supportsBulkDownload = browser.capabilities.bulkDownload || allowClientZipFallback
+	const canDownloadSelection = canDownloadItems(browser.selectedItems, supportsBulkDownload)
 	const previewFiles = useMemo(
 		() => browser.filteredItems.filter((item) => item.kind === 'file'),
 		[browser.filteredItems]
 	)
 	const openPreview = useCallback(
-		async (item: FileNode) => {
+		async (item: FileNode<TMetadata>) => {
 			setPreview({ item, status: 'loading' })
 			try {
 				const url = await adapter.signedUrl(item.path)
@@ -253,7 +307,7 @@ export function FileBrowser({
 		[browser, cancelPendingSelectedItemUnselect, scheduleSelectedItemUnselect]
 	)
 	const openItemFromDoubleClick = useCallback(
-		(item: FileNode) => {
+		(item: FileNode<TMetadata>) => {
 			if (doubleClickOpenPathRef.current !== item.path) {
 				return
 			}
@@ -261,7 +315,7 @@ export function FileBrowser({
 			doubleClickOpenPathRef.current = null
 			cancelPendingSelectedItemUnselect()
 			if (item.kind === 'folder') {
-				void browser.navigate(item.path)
+				void browser.open(item)
 			} else {
 				void openPreview(item)
 			}
@@ -399,7 +453,7 @@ export function FileBrowser({
 			if (event.key === 'Enter' && browser.selectedItems.length === 1) {
 				const item = browser.selectedItems[0]
 				if (item.kind === 'folder') {
-					void browser.navigate(item.path)
+					void browser.open(item)
 				} else {
 					void openPreview(item)
 				}
@@ -598,43 +652,61 @@ export function FileBrowser({
 		}
 	}
 
-	function startItemDrag(item: FileNode, event: DragEvent) {
+	function startItemDrag(item: FileNode<TMetadata>, event: DragEvent) {
 		if (readOnly || !browser.capabilities.move) {
 			return
 		}
 
 		const paths = browser.selectedPaths.includes(item.path) ? browser.selectedPaths : [item.path]
+		draggedItemPathsRef.current = paths
+		setDropActive(false)
+		setFolderDropTargetPath(null)
 		browser.setSelection(paths)
 		event.dataTransfer.effectAllowed = 'move'
 		event.dataTransfer.setData(FILE_BROWSER_DRAG_MIME, JSON.stringify(paths))
 	}
 
-	function allowFolderDrop(item: FileNode, event: DragEvent) {
+	function endItemDrag() {
+		draggedItemPathsRef.current = []
+		setDropActive(false)
+		setFolderDropTargetPath(null)
+	}
+
+	function getActiveDraggedPaths(dataTransfer: DataTransfer) {
+		const transferredPaths = getDraggedPaths(dataTransfer)
+		return transferredPaths.length > 0 ? transferredPaths : draggedItemPathsRef.current
+	}
+
+	function allowFolderDrop(item: FileNode<TMetadata>, event: DragEvent) {
 		if (readOnly || !browser.capabilities.move || item.kind !== 'folder') {
 			return
 		}
 
-		if (getDraggedPaths(event.dataTransfer).length === 0) {
+		const paths = getActiveDraggedPaths(event.dataTransfer)
+		if (paths.length === 0 || paths.some((path) => item.path === path || item.path.startsWith(`${path}/`))) {
 			return
 		}
 
 		event.preventDefault()
 		event.stopPropagation()
 		event.dataTransfer.dropEffect = 'move'
+		setDropActive(false)
+		setFolderDropTargetPath(item.path)
 	}
 
-	async function moveDraggedItemsToFolder(item: FileNode, event: DragEvent) {
+	async function moveDraggedItemsToFolder(item: FileNode<TMetadata>, event: DragEvent) {
 		if (readOnly || !browser.capabilities.move || item.kind !== 'folder') {
 			return
 		}
 
-		const paths = getDraggedPaths(event.dataTransfer)
+		const paths = getActiveDraggedPaths(event.dataTransfer)
 		if (paths.length === 0) {
 			return
 		}
 
 		event.preventDefault()
 		event.stopPropagation()
+		endItemDrag()
 		try {
 			await browser.movePathsTo(paths, item.path)
 		} catch (error) {
@@ -646,7 +718,7 @@ export function FileBrowser({
 		}
 	}
 
-	function openItemContextMenu(item: FileNode, event: MouseEvent) {
+	function openItemContextMenu(item: FileNode<TMetadata>, event: MouseEvent) {
 		event.preventDefault()
 		event.stopPropagation()
 		if (!browser.selectedPaths.includes(item.path)) {
@@ -661,7 +733,7 @@ export function FileBrowser({
 		})
 	}
 
-	function openItemTouchMenu(item: FileNode) {
+	function openItemTouchMenu(item: FileNode<TMetadata>) {
 		if (!browser.selectedPaths.includes(item.path)) {
 			browser.selectOnly(item.path)
 		}
@@ -706,16 +778,20 @@ export function FileBrowser({
 	}
 
 	async function downloadSelection() {
+		if (!canDownloadSelection) {
+			return
+		}
+
 		if (browser.selectedItems.length === 1 && browser.selectedItems[0].kind === 'file') {
 			await downloadItem(browser.selectedItems[0])
 			return
 		}
 
-		const paths = browser.selectedPaths.length > 0 ? browser.selectedPaths : browser.items.map((item) => item.path)
+		const paths = browser.selectedPaths
 		await downloadPaths(paths, totalSelectedBytes)
 	}
 
-	async function downloadItem(item: FileNode) {
+	async function downloadItem(item: FileNode<TMetadata>) {
 		if (item.kind === 'file') {
 			await transfers.prepareSingleDownload({
 				adapter,
@@ -725,11 +801,18 @@ export function FileBrowser({
 			return
 		}
 
-		await downloadPaths([item.path], item.size ?? 0)
+		if (supportsBulkDownload) {
+			await downloadPaths([item.path], item.size ?? 0)
+		}
 	}
 
 	async function downloadPaths(paths: string[], selectedBytes: number) {
+		if (paths.length === 0 || !supportsBulkDownload) {
+			return
+		}
+
 		await transfers.prepareBulkDownload({
+			allowClientZipFallback,
 			adapter,
 			paths,
 			selectedBytes,
@@ -761,6 +844,16 @@ export function FileBrowser({
 		if (candidates.length === 0) {
 			return
 		}
+		if (uploadPolicy?.maxFilesPerBatch !== undefined && candidates.length > uploadPolicy.maxFilesPerBatch) {
+			setUploadRejections(
+				candidates.map((candidate) => ({
+					fileName: candidate.file.name,
+					relativePath: candidate.relativePath,
+					reasons: [`Batch contains ${candidates.length} files; maximum is ${uploadPolicy.maxFilesPerBatch}`]
+				}))
+			)
+			return
+		}
 
 		const { acceptedCandidates, rejectedCandidates } = applyUploadPolicy(candidates, uploadPolicy, browser.currentPath)
 		if (rejectedCandidates.length > 0) {
@@ -776,8 +869,30 @@ export function FileBrowser({
 		}
 
 		const createdFolders = await ensureUploadFolders(supportedCandidates)
-		const group = getUploadTransferGroup(browser.currentPath, supportedCandidates, createdFolders)
 		const conflictPaths = await findUploadConflictPaths(supportedCandidates)
+		if (conflictPaths.length > 0 && allowedUploadConflictResolutions.length === 0) {
+			const conflicts = new Set(conflictPaths)
+			const nonConflictingCandidates = supportedCandidates.filter(
+				(candidate) => !conflicts.has(joinUploadRelativePath(browser.currentPath, candidate.relativePath))
+			)
+			const conflictingCandidates = supportedCandidates.filter((candidate) =>
+				conflicts.has(joinUploadRelativePath(browser.currentPath, candidate.relativePath))
+			)
+			setUploadRejections((current) => [
+				...current,
+				...conflictingCandidates.map((candidate) => ({
+					fileName: candidate.file.name,
+					relativePath: candidate.relativePath,
+					reasons: ['No upload conflict resolutions are enabled']
+				}))
+			])
+			if (nonConflictingCandidates.length > 0) {
+				const group = getUploadTransferGroup(browser.currentPath, nonConflictingCandidates, createdFolders)
+				processUploadQueue(nonConflictingCandidates, [], 0, undefined, group)
+			}
+			return
+		}
+		const group = getUploadTransferGroup(browser.currentPath, supportedCandidates, createdFolders)
 		processUploadQueue(supportedCandidates, conflictPaths, 0, undefined, group)
 	}
 
@@ -901,7 +1016,7 @@ export function FileBrowser({
 	}
 
 	function resolveUploadConflict(resolution: FileBrowserUploadConflictResolution) {
-		if (!uploadConflictQueue) {
+		if (!uploadConflictQueue || !allowedUploadConflictResolutions.includes(resolution)) {
 			return
 		}
 
@@ -934,11 +1049,15 @@ export function FileBrowser({
 
 	return (
 		<section
-			className={`flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[length:var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION}`}
+			className={`flex min-h-[520px] w-full overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[length:var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION}${className ? ` ${className}` : ''}`}
 			data-fb-density={density}
 			ref={rootRef}
 			style={DENSITY_STYLES[density]}
 			onDragEnter={(event) => {
+				if (getActiveDraggedPaths(event.dataTransfer).length > 0) {
+					setDropActive(false)
+					return
+				}
 				event.preventDefault()
 				if (!readOnly) {
 					setDropActive(true)
@@ -947,13 +1066,23 @@ export function FileBrowser({
 			onDragLeave={(event) => {
 				if (event.currentTarget === event.target) {
 					setDropActive(false)
+					setFolderDropTargetPath(null)
 				}
 			}}
 			onDragOver={(event) => {
+				if (getActiveDraggedPaths(event.dataTransfer).length > 0) {
+					setDropActive(false)
+					setFolderDropTargetPath(null)
+					return
+				}
 				event.preventDefault()
 			}}
 			onDrop={(event) => {
 				event.preventDefault()
+				if (getActiveDraggedPaths(event.dataTransfer).length > 0) {
+					endItemDrag()
+					return
+				}
 				setDropActive(false)
 				if (readOnly) {
 					return
@@ -974,6 +1103,7 @@ export function FileBrowser({
 				{formatScreenReaderStatus({
 					currentPath: browser.currentPath,
 					itemCount: browser.filteredItems.length,
+					rootLabel,
 					selectedCount: browser.selectedPaths.length,
 					status: browser.status
 				})}
@@ -982,7 +1112,11 @@ export function FileBrowser({
 				<header
 					className={`flex flex-wrap items-center gap-2 border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-[var(--fb-pad)] py-[var(--fb-cell-y)] ${SURFACE_MOTION}`}
 				>
-					<Breadcrumbs path={browser.currentPath} onNavigate={browser.navigate} />
+					<Breadcrumbs
+						onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
+						path={browser.currentPath}
+						rootLabel={rootLabel}
+					/>
 					{clipboardNotice ? (
 						<span
 							aria-label="Clipboard status"
@@ -1087,6 +1221,7 @@ export function FileBrowser({
 					canDelete={!readOnly}
 					canMove={!readOnly && browser.capabilities.move}
 					canRename={!readOnly && browser.capabilities.rename}
+					canDownload={canDownloadSelection}
 					itemCount={browser.filteredItems.length}
 					onCopy={() => copySelectedItems()}
 					onCut={() => cutSelectedItems()}
@@ -1109,7 +1244,7 @@ export function FileBrowser({
 					onContextMenu={openEmptyContextMenu}
 				>
 					{browser.status === 'loading' && browser.items.length === 0 ? (
-						<SkeletonGrid />
+						<SkeletonGrid rootLabel={rootLabel} />
 					) : browser.status === 'error' ? (
 						<StateMessage
 							title={getErrorState(browser.error).title}
@@ -1117,16 +1252,21 @@ export function FileBrowser({
 							value={getErrorState(browser.error).value}
 						/>
 					) : browser.filteredItems.length === 0 ? (
-						<StateMessage title="This folder is empty" value="Create a folder or upload files to start." />
+						<StateMessage
+							title={emptyState ? emptyState.title : 'This folder is empty'}
+							value={emptyState ? emptyState.description : 'Create a folder or upload files to start.'}
+						/>
 					) : browser.view === 'grid' ? (
 						<FileGrid
 							browser={browser}
 							canMove={!readOnly && browser.capabilities.move}
+							folderDropTargetPath={folderDropTargetPath}
 							inlineRenameError={inlineRenameError}
 							inlineRenameLabel={inlineRenameItem?.name ?? ''}
 							inlineRenameItem={inlineRenameItem}
 							inlineRenameValue={inlineRenameValue}
 							onDragStart={startItemDrag}
+							onDragEnd={endItemDrag}
 							onFolderDragOver={allowFolderDrop}
 							onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
 							onEmptyClick={() => browser.clearSelection()}
@@ -1140,17 +1280,21 @@ export function FileBrowser({
 							onOpenItem={openItemFromDoubleClick}
 							onSelectItem={selectItemWithEvent}
 							onTouchMenu={openItemTouchMenu}
+							renderItemMeta={renderItemMeta}
+							rootLabel={rootLabel}
 							selectedPaths={browser.selectedPaths}
 						/>
 					) : (
 						<FileTable
 							browser={browser}
 							canMove={!readOnly && browser.capabilities.move}
+							folderDropTargetPath={folderDropTargetPath}
 							inlineRenameError={inlineRenameError}
 							inlineRenameLabel={inlineRenameItem?.name ?? ''}
 							inlineRenameItem={inlineRenameItem}
 							inlineRenameValue={inlineRenameValue}
 							onDragStart={startItemDrag}
+							onDragEnd={endItemDrag}
 							onFolderDragOver={allowFolderDrop}
 							onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
 							onInlineRenameCancel={cancelInlineRename}
@@ -1162,6 +1306,8 @@ export function FileBrowser({
 							onContextMenu={openItemContextMenu}
 							onOpenItem={openItemFromDoubleClick}
 							onSelectItem={selectItemWithEvent}
+							renderItemMeta={renderItemMeta}
+							rootLabel={rootLabel}
 							selectedPaths={browser.selectedPaths}
 						/>
 					)}
@@ -1197,9 +1343,11 @@ export function FileBrowser({
 
 			{showDetailsPanel ? (
 				<DetailsPanel
+					canDownload={canDownloadSelection}
 					item={selected}
 					onCopyPath={() => void copyItemPaths(browser.selectedPaths)}
 					onDownload={() => void downloadSelection()}
+					renderDetailsContent={renderDetailsContent}
 					selectedCount={browser.selectedItems.length}
 					totalBytes={totalSelectedBytes}
 				/>
@@ -1208,6 +1356,7 @@ export function FileBrowser({
 			{contextMenu ? (
 				<ContextMenu
 					browser={browser}
+					canDownload={canDownloadSelection}
 					menu={contextMenu}
 					onClose={() => setContextMenu(null)}
 					onDelete={() => setDeleteConfirmOpen(true)}
@@ -1398,6 +1547,7 @@ export function FileBrowser({
 							destinations={moveDestinations}
 							error={moveDestinationError}
 							onSelect={setMoveDestination}
+							rootLabel={rootLabel}
 							selectedPath={moveDestination}
 							status={moveDestinationStatus}
 						/>
@@ -1427,6 +1577,7 @@ export function FileBrowser({
 					}}
 					onResolve={(resolution) => resolveUploadConflict(resolution)}
 					queue={uploadConflictQueue}
+					resolutions={allowedUploadConflictResolutions}
 				/>
 			) : null}
 
@@ -1502,7 +1653,7 @@ export function FileBrowser({
 	)
 }
 
-type BrowserLike = ReturnType<typeof useFileBrowser>
+type BrowserLike<TMetadata = unknown> = UseFileBrowserResult<TMetadata>
 
 function joinUploadRelativePath(currentPath: string, relativePath: string) {
 	return relativePath
@@ -1569,8 +1720,8 @@ function getUploadTransferGroup(
 	}
 }
 
-async function collectMoveDestinations(
-	adapter: FileBrowserAdapter,
+async function collectMoveDestinations<TMetadata>(
+	adapter: FileBrowserAdapter<TMetadata>,
 	excludedPaths: string[]
 ): Promise<MoveDestination[]> {
 	const destinations: MoveDestination[] = []
@@ -1680,15 +1831,17 @@ function isAllowedUploadType(file: File, allowedMimeTypes: string[]) {
 	})
 }
 
-function FileGrid({
+function FileGrid<TMetadata>({
 	browser,
 	canMove,
+	folderDropTargetPath,
 	inlineRenameError,
 	inlineRenameLabel,
 	inlineRenameItem,
 	inlineRenameValue,
 	selectedPaths,
 	onContextMenu,
+	onDragEnd,
 	onDragStart,
 	onEmptyClick,
 	onFolderDragOver,
@@ -1698,26 +1851,32 @@ function FileGrid({
 	onInlineRenameCommit,
 	onOpenItem,
 	onSelectItem,
-	onTouchMenu
+	onTouchMenu,
+	renderItemMeta,
+	rootLabel
 }: {
-	browser: BrowserLike
+	browser: BrowserLike<TMetadata>
 	canMove: boolean
+	folderDropTargetPath: string | null
 	inlineRenameError: string | null
 	inlineRenameLabel: string
-	inlineRenameItem: FileNode | null
+	inlineRenameItem: FileNode<TMetadata> | null
 	inlineRenameValue: string
 	selectedPaths: string[]
-	onContextMenu: (item: FileNode, event: MouseEvent) => void
-	onDragStart: (item: FileNode, event: DragEvent) => void
+	onContextMenu: (item: FileNode<TMetadata>, event: MouseEvent) => void
+	onDragEnd: () => void
+	onDragStart: (item: FileNode<TMetadata>, event: DragEvent) => void
 	onEmptyClick: () => void
-	onFolderDragOver: (item: FileNode, event: DragEvent) => void
-	onFolderDrop: (item: FileNode, event: DragEvent) => void
+	onFolderDragOver: (item: FileNode<TMetadata>, event: DragEvent) => void
+	onFolderDrop: (item: FileNode<TMetadata>, event: DragEvent) => void
 	onInlineRenameCancel: () => void
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
-	onOpenItem: (item: FileNode) => void
+	onOpenItem: (item: FileNode<TMetadata>) => void
 	onSelectItem: (path: string, event: MouseEvent) => void
-	onTouchMenu: (item: FileNode) => void
+	onTouchMenu: (item: FileNode<TMetadata>) => void
+	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
+	rootLabel: string
 }) {
 	const [gridElement, setGridElement] = useState<HTMLDivElement | null>(null)
 
@@ -1750,7 +1909,7 @@ function FileGrid({
 				/>
 			) : null}
 			<div
-				aria-label="Files"
+				aria-label={rootLabel}
 				className="relative grid min-h-full content-start grid-cols-[repeat(auto-fill,minmax(var(--fb-card-min),1fr))] gap-[var(--fb-grid-gap)]"
 				onClick={(event) => {
 					if (event.target === event.currentTarget && !hasSelectionModifier(event)) {
@@ -1763,10 +1922,12 @@ function FileGrid({
 				{browser.filteredItems.map((item) => (
 					<FileCard
 						canMove={canMove}
+						dropTarget={folderDropTargetPath === item.path}
 						item={item}
 						key={item.path}
 						onOpen={() => onOpenItem(item)}
 						onContextMenu={(event) => onContextMenu(item, event)}
+						onDragEnd={onDragEnd}
 						onDragStart={(event) => onDragStart(item, event)}
 						onFolderDragOver={(event) => onFolderDragOver(item, event)}
 						onFolderDrop={(event) => onFolderDrop(item, event)}
@@ -1779,6 +1940,7 @@ function FileGrid({
 						onInlineRenameCommit={onInlineRenameCommit}
 						onSelect={(event) => onSelectItem(item.path, event)}
 						onTouchMenu={() => onTouchMenu(item)}
+						renderItemMeta={renderItemMeta}
 						selected={selectedPaths.includes(item.path)}
 					/>
 				))}
@@ -1787,8 +1949,9 @@ function FileGrid({
 	)
 }
 
-function FileCard({
+function FileCard<TMetadata>({
 	canMove,
+	dropTarget,
 	inlineRenameError,
 	inlineRenameLabel,
 	inlineRenameValue,
@@ -1798,24 +1961,28 @@ function FileCard({
 	onSelect,
 	onOpen,
 	onContextMenu,
+	onDragEnd,
 	onDragStart,
 	onFolderDragOver,
 	onFolderDrop,
 	onInlineRenameCancel,
 	onInlineRenameChange,
 	onInlineRenameCommit,
-	onTouchMenu
+	onTouchMenu,
+	renderItemMeta
 }: {
 	canMove: boolean
+	dropTarget: boolean
 	inlineRenameError: string | null
 	inlineRenameLabel: string
 	inlineRenameValue: string
 	isRenaming: boolean
-	item: FileNode
+	item: FileNode<TMetadata>
 	selected: boolean
 	onSelect: (event: MouseEvent) => void
 	onOpen: () => void
 	onContextMenu: (event: MouseEvent) => void
+	onDragEnd: () => void
 	onDragStart: (event: DragEvent) => void
 	onFolderDragOver: (event: DragEvent) => void
 	onFolderDrop: (event: DragEvent) => void
@@ -1823,6 +1990,7 @@ function FileCard({
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
 	onTouchMenu: () => void
+	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
 }) {
 	const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -1844,17 +2012,21 @@ function FileCard({
 	return (
 		<article
 			aria-selected={selected}
+			data-fb-drop-target={dropTarget ? 'true' : undefined}
 			data-fb-path={item.path}
 			data-fb-selectable="true"
 			draggable={canMove}
 			className={`group relative flex min-h-[var(--fb-card-minh)] cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-[var(--fb-card-pad)] outline-none hover:shadow-[0_8px_22px_color-mix(in_oklch,var(--fb-text)_8%,transparent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${SURFACE_MOTION} ${
-				selected
-					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)]'
-					: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)]'
+				dropTarget
+					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] ring-2 ring-[var(--fb-accent)] ring-offset-2 ring-offset-[var(--fb-surface)]'
+					: selected
+						? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)]'
+						: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)]'
 			}`}
 			onClick={onSelect}
 			onContextMenu={onContextMenu}
 			onDoubleClick={onOpen}
+			onDragEnd={canMove ? onDragEnd : undefined}
 			onDragOver={item.kind === 'folder' ? onFolderDragOver : undefined}
 			onDragStart={canMove ? onDragStart : undefined}
 			onDrop={item.kind === 'folder' ? onFolderDrop : undefined}
@@ -1909,11 +2081,33 @@ function FileCard({
 			<div className="mt-1 text-[11px] text-[var(--fb-muted)]">
 				{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
 			</div>
+			<ItemMeta item={item} renderItemMeta={renderItemMeta} view="grid" />
 		</article>
 	)
 }
 
-function InlineRenameInput({
+function ItemMeta<TMetadata>({
+	item,
+	renderItemMeta,
+	view
+}: {
+	item: FileNode<TMetadata>
+	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
+	view: FileBrowserView
+}) {
+	if (!renderItemMeta) {
+		return null
+	}
+
+	const content = renderItemMeta(item, { view })
+	return content === null || content === undefined || content === false ? null : (
+		<div className="mt-1 min-w-0 text-[11px]" data-fb-item-meta={view}>
+			{content}
+		</div>
+	)
+}
+
+function InlineRenameInput<TMetadata>({
 	error,
 	item,
 	label,
@@ -1923,7 +2117,7 @@ function InlineRenameInput({
 	value
 }: {
 	error: string | null
-	item: FileNode
+	item: FileNode<TMetadata>
 	label: string
 	onCancel: () => void
 	onChange: (value: string) => void
@@ -1964,15 +2158,17 @@ function InlineRenameInput({
 	)
 }
 
-function FileTable({
+function FileTable<TMetadata>({
 	browser,
 	canMove,
+	folderDropTargetPath,
 	inlineRenameError,
 	inlineRenameLabel,
 	inlineRenameItem,
 	inlineRenameValue,
 	selectedPaths,
 	onContextMenu,
+	onDragEnd,
 	onDragStart,
 	onFolderDragOver,
 	onFolderDrop,
@@ -1980,28 +2176,34 @@ function FileTable({
 	onInlineRenameChange,
 	onInlineRenameCommit,
 	onOpenItem,
-	onSelectItem
+	onSelectItem,
+	renderItemMeta,
+	rootLabel
 }: {
-	browser: BrowserLike
+	browser: BrowserLike<TMetadata>
 	canMove: boolean
+	folderDropTargetPath: string | null
 	inlineRenameError: string | null
 	inlineRenameLabel: string
-	inlineRenameItem: FileNode | null
+	inlineRenameItem: FileNode<TMetadata> | null
 	inlineRenameValue: string
 	selectedPaths: string[]
-	onContextMenu: (item: FileNode, event: MouseEvent) => void
-	onDragStart: (item: FileNode, event: DragEvent) => void
-	onFolderDragOver: (item: FileNode, event: DragEvent) => void
-	onFolderDrop: (item: FileNode, event: DragEvent) => void
+	onContextMenu: (item: FileNode<TMetadata>, event: MouseEvent) => void
+	onDragEnd: () => void
+	onDragStart: (item: FileNode<TMetadata>, event: DragEvent) => void
+	onFolderDragOver: (item: FileNode<TMetadata>, event: DragEvent) => void
+	onFolderDrop: (item: FileNode<TMetadata>, event: DragEvent) => void
 	onInlineRenameCancel: () => void
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
-	onOpenItem: (item: FileNode) => void
+	onOpenItem: (item: FileNode<TMetadata>) => void
 	onSelectItem: (path: string, event: MouseEvent) => void
+	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
+	rootLabel: string
 }) {
 	return (
 		<table
-			aria-label="Files"
+			aria-label={rootLabel}
 			className={`w-full border-separate border-spacing-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-left ${SURFACE_MOTION}`}
 		>
 			<thead className="text-[11px] text-[var(--fb-muted)]">
@@ -2021,16 +2223,20 @@ function FileTable({
 				{browser.filteredItems.map((item) => (
 					<tr
 						aria-selected={selectedPaths.includes(item.path)}
+						data-fb-drop-target={folderDropTargetPath === item.path ? 'true' : undefined}
 						data-fb-path={item.path}
 						className={
-							selectedPaths.includes(item.path)
-								? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
-								: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+							folderDropTargetPath === item.path
+								? `bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)] ${CONTROL_MOTION}`
+								: selectedPaths.includes(item.path)
+									? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+									: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
 						}
 						draggable={canMove}
 						key={item.path}
 						onClick={(event) => onSelectItem(item.path, event)}
 						onContextMenu={(event) => onContextMenu(item, event)}
+						onDragEnd={onDragEnd}
 						onDragOver={(event) => onFolderDragOver(item, event)}
 						onDragStart={(event) => onDragStart(item, event)}
 						onDrop={(event) => onFolderDrop(item, event)}
@@ -2038,34 +2244,37 @@ function FileTable({
 						tabIndex={0}
 					>
 						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)]">
-							<div className="flex min-w-0 items-center gap-2">
+							<div className="flex min-w-0 items-start gap-2">
 								{item.kind === 'folder' ? (
-									<Folder className="size-4 text-[var(--fb-folder)]" />
+									<Folder className="mt-0.5 size-4 shrink-0 text-[var(--fb-folder)]" />
 								) : (
-									<File className="size-4 text-[var(--fb-muted)]" />
+									<File className="mt-0.5 size-4 shrink-0 text-[var(--fb-muted)]" />
 								)}
-								{inlineRenameItem?.path === item.path ? (
-									<InlineRenameInput
-										item={item}
-										error={inlineRenameError}
-										label={inlineRenameLabel}
-										onCancel={onInlineRenameCancel}
-										onChange={onInlineRenameChange}
-										onCommit={onInlineRenameCommit}
-										value={inlineRenameValue}
-									/>
-								) : (
-									<button
-										className={`truncate font-medium ${CONTROL_MOTION}`}
-										onClick={(event) => {
-											event.stopPropagation()
-											onSelectItem(item.path, event)
-										}}
-										type="button"
-									>
-										{item.name}
-									</button>
-								)}
+								<div className="min-w-0">
+									{inlineRenameItem?.path === item.path ? (
+										<InlineRenameInput
+											item={item}
+											error={inlineRenameError}
+											label={inlineRenameLabel}
+											onCancel={onInlineRenameCancel}
+											onChange={onInlineRenameChange}
+											onCommit={onInlineRenameCommit}
+											value={inlineRenameValue}
+										/>
+									) : (
+										<button
+											className={`block max-w-full truncate font-medium ${CONTROL_MOTION}`}
+											onClick={(event) => {
+												event.stopPropagation()
+												onSelectItem(item.path, event)
+											}}
+											type="button"
+										>
+											{item.name}
+										</button>
+									)}
+									<ItemMeta item={item} renderItemMeta={renderItemMeta} view="list" />
+								</div>
 							</div>
 						</td>
 						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
@@ -2081,8 +2290,9 @@ function FileTable({
 	)
 }
 
-function ContextMenu({
+function ContextMenu<TMetadata>({
 	browser,
+	canDownload,
 	menu,
 	onClose,
 	onDelete,
@@ -2097,18 +2307,19 @@ function ContextMenu({
 	onUpload,
 	readOnly
 }: {
-	browser: BrowserLike
-	menu: ContextMenuState
+	browser: BrowserLike<TMetadata>
+	canDownload: boolean
+	menu: ContextMenuState<TMetadata>
 	onClose: () => void
 	onDelete: () => void
 	onDownload: () => void
 	onCopy: () => void
-	onCopyPath: (item: FileNode) => void
+	onCopyPath: (item: FileNode<TMetadata>) => void
 	onCut: () => void
 	onMove: () => void
 	onNewFolder: () => void
 	onPaste: () => void
-	onRename: (item?: FileNode) => void
+	onRename: (item?: FileNode<TMetadata>) => void
 	onUpload: () => void
 	readOnly: boolean
 }) {
@@ -2149,7 +2360,7 @@ function ContextMenu({
 							? 'Copy paths'
 							: 'Copy path'}
 					</ContextMenuButton>
-					<ContextMenuButton onClick={() => run(onDownload)}>Download</ContextMenuButton>
+					{canDownload ? <ContextMenuButton onClick={() => run(onDownload)}>Download</ContextMenuButton> : null}
 					{!readOnly ? (
 						<ContextMenuButton
 							danger
@@ -2202,7 +2413,8 @@ function UploadConflictDialog({
 	onApplyToAllChange,
 	onCancel,
 	onResolve,
-	queue
+	queue,
+	resolutions
 }: {
 	applyToAll: boolean
 	currentPath: string
@@ -2210,6 +2422,7 @@ function UploadConflictDialog({
 	onCancel: () => void
 	onResolve: (resolution: FileBrowserUploadConflictResolution) => void
 	queue: UploadConflictQueue
+	resolutions: readonly FileBrowserUploadConflictResolution[]
 }) {
 	const candidate = queue.candidates[queue.index]
 	const path = joinUploadRelativePath(currentPath, candidate.relativePath)
@@ -2242,15 +2455,16 @@ function UploadConflictDialog({
 					<button className={commandButton(false)} onClick={onCancel} type="button">
 						Cancel
 					</button>
-					<button className={commandButton(false)} onClick={() => onResolve('skip')} type="button">
-						Skip
-					</button>
-					<button className={commandButton(false)} onClick={() => onResolve('replace')} type="button">
-						Replace
-					</button>
-					<button className={primaryButton()} onClick={() => onResolve('keep-both')} type="button">
-						Keep both
-					</button>
+					{resolutions.map((resolution) => (
+						<button
+							className={resolution === 'keep-both' ? primaryButton() : commandButton(false)}
+							key={resolution}
+							onClick={() => onResolve(resolution)}
+							type="button"
+						>
+							{formatUploadConflictResolution(resolution)}
+						</button>
+					))}
 				</div>
 			</div>
 		</div>
@@ -2301,6 +2515,7 @@ function MoveDestinationPicker({
 	destinations,
 	error,
 	onSelect,
+	rootLabel,
 	selectedPath,
 	status
 }: {
@@ -2308,6 +2523,7 @@ function MoveDestinationPicker({
 	destinations: MoveDestination[]
 	error: string | null
 	onSelect: (path: string) => void
+	rootLabel: string
 	selectedPath: string
 	status: MoveDestinationStatus
 }) {
@@ -2321,7 +2537,7 @@ function MoveDestinationPicker({
 				onClick={() => onSelect(currentPath)}
 				path={currentPath}
 			/>
-			<MoveDestinationButton active={selectedPath === '/'} label="Files" onClick={() => onSelect('/')} path="/" />
+			<MoveDestinationButton active={selectedPath === '/'} label={rootLabel} onClick={() => onSelect('/')} path="/" />
 			{status === 'loading' ? (
 				<div className="px-2 py-3 text-[12px] text-[var(--fb-muted)]">Loading folders</div>
 			) : null}
@@ -2382,6 +2598,7 @@ function ActionBar({
 	canCopy,
 	canCut,
 	canDelete,
+	canDownload,
 	onRename,
 	onMove,
 	onCopy,
@@ -2398,6 +2615,7 @@ function ActionBar({
 	canCopy: boolean
 	canCut: boolean
 	canDelete: boolean
+	canDownload: boolean
 	onRename: () => void
 	onMove: () => void
 	onCopy: () => void
@@ -2450,7 +2668,7 @@ function ActionBar({
 					Cut
 				</button>
 			) : null}
-			{hasSelection ? (
+			{hasSelection && canDownload ? (
 				<button className={commandButton(false)} onClick={onDownload} type="button">
 					<Download className="size-4" />
 					Download
@@ -2466,9 +2684,17 @@ function ActionBar({
 	)
 }
 
-function Breadcrumbs({ path, onNavigate }: { path: string; onNavigate: (path: string) => Promise<void> }) {
+function Breadcrumbs({
+	path,
+	onNavigate,
+	rootLabel
+}: {
+	path: string
+	onNavigate: (path: string) => Promise<void>
+	rootLabel: string
+}) {
 	const parts = path.split('/').filter(Boolean)
-	const crumbs = [{ label: 'Files', path: '/' }].concat(
+	const crumbs = [{ label: rootLabel, path: '/' }].concat(
 		parts.map((part, index) => ({
 			label: part,
 			path: `/${parts.slice(0, index + 1).join('/')}`
@@ -2539,16 +2765,20 @@ function getVisibleBreadcrumbs(crumbs: BreadcrumbCrumb[]): VisibleBreadcrumbCrum
 	]
 }
 
-function DetailsPanel({
+function DetailsPanel<TMetadata>({
+	canDownload,
 	item,
 	onCopyPath,
 	onDownload,
+	renderDetailsContent,
 	selectedCount,
 	totalBytes
 }: {
-	item: FileNode | null
+	canDownload: boolean
+	item: FileNode<TMetadata> | null
 	onCopyPath: () => void
 	onDownload: () => void
+	renderDetailsContent?: (item: FileNode<TMetadata>, defaultContent: ReactNode) => ReactNode
 	selectedCount: number
 	totalBytes: number
 }) {
@@ -2586,15 +2816,17 @@ function DetailsPanel({
 						<dd className="font-medium">{formatBytes(totalBytes)}</dd>
 					</div>
 				</dl>
-				<button
-					aria-label={`Download ${formatItemCount(selectedCount)}`}
-					className={`${commandButton(false)} mt-4 w-full justify-center`}
-					onClick={onDownload}
-					type="button"
-				>
-					<Download className="size-4" />
-					Download
-				</button>
+				{canDownload ? (
+					<button
+						aria-label={`Download ${formatItemCount(selectedCount)}`}
+						className={`${commandButton(false)} mt-4 w-full justify-center`}
+						onClick={onDownload}
+						type="button"
+					>
+						<Download className="size-4" />
+						Download
+					</button>
+				) : null}
 				<button
 					aria-label={`Copy ${formatItemCount(selectedCount)} paths`}
 					className={`${commandButton(false)} mt-2 w-full justify-center`}
@@ -2608,11 +2840,8 @@ function DetailsPanel({
 		)
 	}
 
-	return (
-		<aside
-			aria-label="Details"
-			className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block ${SURFACE_MOTION}`}
-		>
+	const defaultContent = (
+		<>
 			<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
 				{item.kind === 'folder' ? (
 					<Folder className="size-12 text-[var(--fb-folder)]" />
@@ -2637,15 +2866,17 @@ function DetailsPanel({
 					</div>
 				) : null}
 			</dl>
-			<button
-				aria-label={`Download ${item.name}`}
-				className={`${commandButton(false)} mt-4 w-full justify-center`}
-				onClick={onDownload}
-				type="button"
-			>
-				<Download className="size-4" />
-				Download
-			</button>
+			{canDownload ? (
+				<button
+					aria-label={`Download ${item.name}`}
+					className={`${commandButton(false)} mt-4 w-full justify-center`}
+					onClick={onDownload}
+					type="button"
+				>
+					<Download className="size-4" />
+					Download
+				</button>
+			) : null}
 			<button
 				aria-label={`Copy path of ${item.name}`}
 				className={`${commandButton(false)} mt-2 w-full justify-center`}
@@ -2655,11 +2886,20 @@ function DetailsPanel({
 				<CopyIcon className="size-4" />
 				Copy path
 			</button>
+		</>
+	)
+
+	return (
+		<aside
+			aria-label="Details"
+			className={`hidden w-72 shrink-0 border-l border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 md:block ${SURFACE_MOTION}`}
+		>
+			{renderDetailsContent ? renderDetailsContent(item, defaultContent) : defaultContent}
 		</aside>
 	)
 }
 
-function PreviewOriginalLink({ preview }: { preview: PreviewState }) {
+function PreviewOriginalLink<TMetadata>({ preview }: { preview: PreviewState<TMetadata> }) {
 	if (!preview.url) {
 		return null
 	}
@@ -2677,10 +2917,10 @@ function PreviewOriginalLink({ preview }: { preview: PreviewState }) {
 	)
 }
 
-function SkeletonGrid() {
+function SkeletonGrid({ rootLabel }: { rootLabel: string }) {
 	return (
 		<div
-			aria-label="Files"
+			aria-label={rootLabel}
 			className="grid grid-cols-[repeat(auto-fill,minmax(var(--fb-card-min),1fr))] gap-[var(--fb-grid-gap)]"
 			role="grid"
 		>
@@ -2698,14 +2938,14 @@ function SkeletonGrid() {
 	)
 }
 
-function StateMessage({ title, value, tone }: { title: string; value: string; tone?: 'danger' }) {
+function StateMessage({ title, value, tone }: { title: ReactNode; value?: ReactNode; tone?: 'danger' }) {
 	return (
 		<div
 			className={`grid min-h-[280px] place-items-center rounded-[var(--fb-radius)] border border-dashed border-[var(--fb-border)] bg-[var(--fb-surface)] p-8 text-center ${SURFACE_MOTION}`}
 		>
 			<div>
 				<div className={`font-semibold ${tone === 'danger' ? 'text-[var(--fb-danger)]' : ''}`}>{title}</div>
-				<div className="mt-1 text-[12px] text-[var(--fb-muted)]">{value}</div>
+				{value === undefined ? null : <div className="mt-1 text-[12px] text-[var(--fb-muted)]">{value}</div>}
 			</div>
 		</div>
 	)
@@ -2749,8 +2989,8 @@ function UploadRejectionAlert({
 	)
 }
 
-function selectWithEvent(
-	browser: BrowserLike,
+function selectWithEvent<TMetadata>(
+	browser: BrowserLike<TMetadata>,
 	path: string,
 	event: MouseEvent | KeyboardEvent,
 	options: {
@@ -2802,6 +3042,10 @@ function escapeAttributeSelector(value: string) {
 }
 
 function getDraggedPaths(dataTransfer: DataTransfer) {
+	if (typeof dataTransfer.getData !== 'function') {
+		return []
+	}
+
 	const raw = dataTransfer.getData(FILE_BROWSER_DRAG_MIME)
 	if (!raw) {
 		return []
@@ -2878,18 +3122,41 @@ function formatItemCount(count: number) {
 	return `${count} ${count === 1 ? 'item' : 'items'}`
 }
 
+function normalizeUploadConflictResolutions(resolutions: readonly FileBrowserUploadConflictResolution[]) {
+	return Array.from(
+		new Set(
+			resolutions.filter((resolution) =>
+				DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS.includes(resolution as (typeof DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS)[number])
+			)
+		)
+	)
+}
+
+function formatUploadConflictResolution(resolution: FileBrowserUploadConflictResolution) {
+	if (resolution === 'keep-both') {
+		return 'Keep both'
+	}
+	return resolution === 'replace' ? 'Replace' : 'Skip'
+}
+
+function canDownloadItems<TMetadata>(items: FileNode<TMetadata>[], supportsBulkDownload: boolean) {
+	return items.length === 1 && items[0].kind === 'file' ? true : items.length > 0 && supportsBulkDownload
+}
+
 function formatScreenReaderStatus({
 	currentPath,
 	itemCount,
+	rootLabel,
 	selectedCount,
 	status
 }: {
 	currentPath: string
 	itemCount: number
+	rootLabel: string
 	selectedCount: number
 	status: string
 }) {
-	const folderName = currentPath === '/' ? 'Files' : (currentPath.split('/').filter(Boolean).at(-1) ?? 'Files')
+	const folderName = currentPath === '/' ? rootLabel : (currentPath.split('/').filter(Boolean).at(-1) ?? rootLabel)
 	return `${folderName} ${status}. ${itemCount} ${itemCount === 1 ? 'item' : 'items'}. ${selectedCount} selected.`
 }
 

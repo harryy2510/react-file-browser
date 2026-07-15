@@ -80,6 +80,7 @@ export type PrepareBulkDownloadInput = {
 	paths: string[]
 	selectedBytes: number
 	warnZipSizeBytes?: number
+	allowClientZipFallback?: boolean
 }
 
 export type PrepareSingleDownloadInput = {
@@ -89,10 +90,36 @@ export type PrepareSingleDownloadInput = {
 }
 
 export type TransferManagerOptions = {
-	storage?: Storage
+	storage?: Storage | null
 	storageKey?: string
 	idFactory?: () => string
 	now?: () => Date
+	maxConcurrentUploads?: number
+}
+
+type PersistedUploadTransfer = Pick<
+	UploadTransfer,
+	| 'id'
+	| 'kind'
+	| 'status'
+	| 'path'
+	| 'name'
+	| 'loadedBytes'
+	| 'totalBytes'
+	| 'bytesPerSecond'
+	| 'completedParts'
+	| 'createdAt'
+	| 'updatedAt'
+	| 'error'
+	| 'uploadId'
+	| 'partSize'
+	| 'onConflict'
+	| 'group'
+>
+
+type PersistedTransferSnapshot = {
+	uploads: PersistedUploadTransfer[]
+	downloads: BulkDownloadJob[]
 }
 
 type UploadSpeedSample = {
@@ -109,17 +136,20 @@ export class TransferManager {
 	private readonly uploadSpeedSamples = new Map<string, UploadSpeedSample>()
 	private readonly subscribers = new Set<() => void>()
 	private readonly activeTasks = new Set<Promise<void>>()
+	private readonly runningUploadIds = new Set<string>()
 	private readonly storage?: Storage
 	private readonly storageKey: string
 	private readonly idFactory: () => string
 	private readonly now: () => Date
+	private readonly maxConcurrentUploads: number
 	private snapshotCache: TransferSnapshot | undefined
 
 	constructor(options: TransferManagerOptions = {}) {
-		this.storage = options.storage
+		this.storage = options.storage ?? undefined
 		this.storageKey = options.storageKey ?? DEFAULT_STORAGE_KEY
 		this.idFactory = options.idFactory ?? createId
 		this.now = options.now ?? (() => new Date())
+		this.maxConcurrentUploads = validateMaxConcurrentUploads(options.maxConcurrentUploads)
 		this.restorePersisted()
 		if (this.downloads.size > 0) {
 			this.pruneExpiredDownloads()
@@ -209,13 +239,13 @@ export class TransferManager {
 		}
 		this.uploads.set(id, upload)
 		this.persistAndNotify()
-		this.track(this.runUpload(id))
+		this.pumpUploadQueue()
 		return id
 	}
 
 	resumeUpload(id: string): Promise<void> {
 		const upload = this.uploads.get(id)
-		if (!upload || !upload.adapter || !upload.file) {
+		if (!upload || !upload.adapter || !upload.file || this.runningUploadIds.has(id)) {
 			return Promise.resolve()
 		}
 
@@ -226,7 +256,7 @@ export class TransferManager {
 		upload.abortController = new AbortController()
 		upload.updatedAt = this.timestamp()
 		this.persistAndNotify()
-		this.track(this.runUpload(id))
+		this.pumpUploadQueue()
 		return Promise.resolve()
 	}
 
@@ -248,7 +278,7 @@ export class TransferManager {
 		upload.abortController = new AbortController()
 		upload.updatedAt = this.timestamp()
 		this.persistAndNotify()
-		this.track(this.runUpload(id))
+		this.pumpUploadQueue()
 		return Promise.resolve()
 	}
 
@@ -257,11 +287,12 @@ export class TransferManager {
 		if (!upload) {
 			return
 		}
-		upload.abortController?.abort()
 		upload.status = 'paused'
+		upload.abortController?.abort()
 		this.uploadSpeedSamples.delete(id)
 		upload.updatedAt = this.timestamp()
 		this.persistAndNotify()
+		this.pumpUploadQueue()
 	}
 
 	async cancelUpload(id: string): Promise<void> {
@@ -270,14 +301,15 @@ export class TransferManager {
 			return
 		}
 
-		upload.abortController?.abort()
 		upload.status = 'cancelled'
+		upload.abortController?.abort()
 		this.uploadSpeedSamples.delete(id)
 		upload.updatedAt = this.timestamp()
+		this.persistAndNotify()
+		this.pumpUploadQueue()
 		if (upload.uploadId && upload.adapter?.abortMultipartUpload) {
 			await upload.adapter.abortMultipartUpload(upload.uploadId)
 		}
-		this.persistAndNotify()
 	}
 
 	async waitForIdle(): Promise<void> {
@@ -290,7 +322,8 @@ export class TransferManager {
 		adapter,
 		paths,
 		selectedBytes,
-		warnZipSizeBytes = Number.POSITIVE_INFINITY
+		warnZipSizeBytes = Number.POSITIVE_INFINITY,
+		allowClientZipFallback = true
 	}: PrepareBulkDownloadInput): Promise<BulkDownloadJob> {
 		const id = this.idFactory()
 		const timestamp = this.timestamp()
@@ -314,6 +347,8 @@ export class TransferManager {
 				job.status = 'ready'
 				job.url = result.url
 				job.expiresAt = result.expiresAt
+			} else if (!allowClientZipFallback) {
+				throw new Error('Client-side ZIP fallback is disabled.')
 			} else if (selectedBytes > warnZipSizeBytes) {
 				job.status = 'warning'
 				job.warning = 'client_zip_size'
@@ -403,7 +438,7 @@ export class TransferManager {
 
 	private async runUpload(id: string): Promise<void> {
 		const upload = this.uploads.get(id)
-		if (!upload?.adapter || !upload.file) {
+		if (!upload?.adapter || !upload.file || upload.status !== 'queued') {
 			return
 		}
 
@@ -415,6 +450,11 @@ export class TransferManager {
 			const result = hasMultipart(upload.adapter)
 				? await this.runMultipartUpload(upload)
 				: await this.runSimpleUpload(upload)
+			if (['paused', 'cancelled'].includes(upload.status)) {
+				this.uploadSpeedSamples.delete(upload.id)
+				this.persistAndNotify()
+				return
+			}
 			upload.status = 'completed'
 			upload.loadedBytes = upload.totalBytes
 			upload.result = result
@@ -514,11 +554,29 @@ export class TransferManager {
 		this.persistAndNotify()
 	}
 
-	private track(task: Promise<void>): void {
-		this.activeTasks.add(task)
-		void task.finally(() => {
-			this.activeTasks.delete(task)
-		})
+	private pumpUploadQueue(): void {
+		while (this.runningUploadIds.size < this.maxConcurrentUploads) {
+			const upload = Array.from(this.uploads.values()).find(
+				(candidate) =>
+					candidate.status === 'queued' &&
+					Boolean(candidate.adapter) &&
+					Boolean(candidate.file) &&
+					!this.runningUploadIds.has(candidate.id)
+			)
+			if (!upload) {
+				return
+			}
+
+			this.runningUploadIds.add(upload.id)
+			const task = this.runUpload(upload.id)
+			this.activeTasks.add(task)
+			const release = () => {
+				this.activeTasks.delete(task)
+				this.runningUploadIds.delete(upload.id)
+				this.pumpUploadQueue()
+			}
+			void task.then(release, release)
+		}
 	}
 
 	private persistAndNotify(): void {
@@ -534,14 +592,9 @@ export class TransferManager {
 			return
 		}
 
-		const payload = {
-			uploads: Array.from(this.uploads.values()).map((upload) => ({
-				...cloneUpload(upload),
-				file: undefined,
-				adapter: undefined,
-				abortController: undefined
-			})),
-			downloads: Array.from(this.downloads.values()).map(cloneDownload)
+		const payload: PersistedTransferSnapshot = {
+			uploads: Array.from(this.uploads.values()).map(toPersistedUpload),
+			downloads: Array.from(this.downloads.values()).map(toPersistedDownload)
 		}
 		this.storage.setItem(this.storageKey, JSON.stringify(payload))
 	}
@@ -557,17 +610,14 @@ export class TransferManager {
 		}
 
 		try {
-			const parsed = JSON.parse(raw) as Partial<TransferSnapshot>
+			const parsed = JSON.parse(raw) as Partial<PersistedTransferSnapshot>
 			for (const upload of parsed.uploads ?? []) {
-				this.uploads.set(upload.id, {
-					...upload,
-					file: undefined,
-					adapter: undefined,
-					abortController: undefined
-				})
+				const restored = restorePersistedUpload(upload)
+				this.uploads.set(restored.id, restored)
 			}
 			for (const download of parsed.downloads ?? []) {
-				this.downloads.set(download.id, { ...download })
+				const restored = restorePersistedDownload(download)
+				this.downloads.set(restored.id, restored)
 			}
 		} catch {
 			this.storage.removeItem(this.storageKey)
@@ -679,6 +729,79 @@ function cloneDownload(download: InternalBulkDownloadJob): BulkDownloadJob {
 		...snapshot,
 		paths: [...download.paths]
 	}
+}
+
+function toPersistedUpload(upload: UploadTransfer): PersistedUploadTransfer {
+	return {
+		id: upload.id,
+		kind: upload.kind,
+		status: upload.status,
+		path: upload.path,
+		name: upload.name,
+		loadedBytes: upload.loadedBytes,
+		totalBytes: upload.totalBytes,
+		bytesPerSecond: upload.bytesPerSecond,
+		completedParts: upload.completedParts.map((part) => ({ ...part })),
+		createdAt: upload.createdAt,
+		updatedAt: upload.updatedAt,
+		error: upload.error,
+		uploadId: upload.uploadId,
+		partSize: upload.partSize,
+		onConflict: upload.onConflict,
+		group: upload.group ? { ...upload.group } : undefined
+	}
+}
+
+function restorePersistedUpload(upload: PersistedUploadTransfer): UploadTransfer {
+	return {
+		id: upload.id,
+		kind: 'upload',
+		status: upload.status,
+		path: upload.path,
+		name: upload.name,
+		loadedBytes: upload.loadedBytes,
+		totalBytes: upload.totalBytes,
+		bytesPerSecond: upload.bytesPerSecond,
+		completedParts: upload.completedParts.map((part) => ({ ...part })),
+		createdAt: upload.createdAt,
+		updatedAt: upload.updatedAt,
+		error: upload.error,
+		uploadId: upload.uploadId,
+		partSize: upload.partSize,
+		onConflict: upload.onConflict,
+		group: upload.group ? { ...upload.group } : undefined
+	}
+}
+
+function toPersistedDownload(download: InternalBulkDownloadJob): BulkDownloadJob {
+	return {
+		id: download.id,
+		kind: download.kind,
+		status: download.status,
+		strategy: download.strategy,
+		paths: [...download.paths],
+		selectedBytes: download.selectedBytes,
+		createdAt: download.createdAt,
+		updatedAt: download.updatedAt,
+		url: download.url,
+		expiresAt: download.expiresAt,
+		warning: download.warning,
+		error: download.error
+	}
+}
+
+function restorePersistedDownload(download: BulkDownloadJob): InternalBulkDownloadJob {
+	return toPersistedDownload(download)
+}
+
+function validateMaxConcurrentUploads(value: number | undefined): number {
+	if (value === undefined) {
+		return Number.POSITIVE_INFINITY
+	}
+	if (!Number.isInteger(value) || value < 1) {
+		throw new RangeError('maxConcurrentUploads must be a positive integer')
+	}
+	return value
 }
 
 function isExpiredOrStaleDownload(download: InternalBulkDownloadJob, nowMs: number): boolean {

@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { InMemoryFileBrowserAdapter } from '@/adapters/in-memory'
 import { FileBrowserBulkActionError } from '@/core/types'
+import type { FileNode } from '@/core/types'
 import { useFileBrowser } from '@/core/use-file-browser'
 
 const textFile = (name: string, text = name) => new File([text], name, { type: 'text/plain' })
@@ -45,6 +46,118 @@ describe('useFileBrowser', () => {
 		expect(result.current.currentPath).toBe('/docs')
 		expect(result.current.selectedPaths).toEqual([])
 		expect(result.current.items.map((item) => item.path)).toEqual(['/docs/readme.txt'])
+	})
+
+	test('emits programmatic and item navigation context in uncontrolled mode', async () => {
+		type RagMetadata = { ragStatus: 'indexed' | 'pending' }
+		const onPathChange = vi.fn()
+		const adapter = new InMemoryFileBrowserAdapter<RagMetadata>({
+			initialEntries: [
+				{
+					id: 'folder-docs',
+					kind: 'folder',
+					metadata: { ragStatus: 'indexed' },
+					name: 'docs',
+					path: '/docs'
+				},
+				{
+					id: 'folder-rag',
+					kind: 'folder',
+					metadata: { ragStatus: 'pending' },
+					name: 'rag',
+					path: '/rag'
+				}
+			]
+		})
+		const { result } = renderHook(() => useFileBrowser({ adapter, onPathChange }))
+		await waitFor(() => expect(result.current.status).toBe('ready'))
+
+		await act(async () => {
+			await result.current.navigate('/docs')
+		})
+		expect(onPathChange).toHaveBeenLastCalledWith('/docs', { source: 'programmatic' })
+
+		await act(async () => {
+			await result.current.navigate('/', { source: 'breadcrumb' })
+		})
+		expect(onPathChange).toHaveBeenLastCalledWith('/', { source: 'breadcrumb' })
+		const ragFolder = result.current.items.find((item) => item.path === '/rag')
+		if (!ragFolder) {
+			throw new Error('expected seeded RAG folder')
+		}
+		expectTypeOf(ragFolder).toEqualTypeOf<FileNode<RagMetadata>>()
+
+		await act(async () => {
+			await result.current.open(ragFolder)
+		})
+		expect(onPathChange).toHaveBeenLastCalledWith('/rag', {
+			item: expect.objectContaining({
+				id: 'folder-rag',
+				metadata: { ragStatus: 'pending' },
+				path: '/rag'
+			}),
+			source: 'item'
+		})
+	})
+
+	test('treats path as controlled and loads external Back and Forward changes once', async () => {
+		const adapter = await seededAdapter()
+		const list = vi.spyOn(adapter, 'list')
+		const onPathChange = vi.fn()
+		const { result, rerender } = renderHook(
+			({ path }: { path: string }) => useFileBrowser({ adapter, onPathChange, path }),
+			{ initialProps: { path: '/' } }
+		)
+		await waitFor(() => expect(result.current.items.map((item) => item.path)).toEqual(['/assets', '/docs']))
+
+		act(() => result.current.selectOnly('/docs'))
+		await act(async () => {
+			await result.current.navigate('/docs')
+		})
+		expect(result.current.currentPath).toBe('/')
+		expect(onPathChange).toHaveBeenCalledWith('/docs', { source: 'programmatic' })
+		expect(list).toHaveBeenCalledTimes(1)
+
+		rerender({ path: '/docs' })
+		await waitFor(() => expect(result.current.items.map((item) => item.path)).toEqual(['/docs/readme.txt']))
+		expect(result.current.currentPath).toBe('/docs')
+		expect(result.current.selectedPaths).toEqual([])
+		expect(onPathChange).toHaveBeenCalledTimes(1)
+
+		rerender({ path: '/' })
+		await waitFor(() => expect(result.current.items.map((item) => item.path)).toEqual(['/assets', '/docs']))
+		expect(result.current.currentPath).toBe('/')
+		expect(onPathChange).toHaveBeenCalledTimes(1)
+		expect(list.mock.calls.map(([path]) => path)).toEqual(['/', '/docs', '/'])
+	})
+
+	test('supports controlled and uncontrolled search state', async () => {
+		const adapter = new InMemoryFileBrowserAdapter({
+			initialEntries: [
+				{ kind: 'file', name: 'Draft.txt', path: '/draft.txt' },
+				{ kind: 'file', name: 'Report.txt', path: '/report.txt' }
+			]
+		})
+		const onSearchQueryChange = vi.fn()
+		const controlled = renderHook(
+			({ searchQuery }: { searchQuery: string }) => useFileBrowser({ adapter, onSearchQueryChange, searchQuery }),
+			{ initialProps: { searchQuery: 'report' } }
+		)
+		await waitFor(() => expect(controlled.result.current.status).toBe('ready'))
+		expect(controlled.result.current.filteredItems.map((item) => item.path)).toEqual(['/report.txt'])
+
+		act(() => controlled.result.current.setSearchQuery('draft'))
+		expect(controlled.result.current.searchQuery).toBe('report')
+		expect(onSearchQueryChange).toHaveBeenCalledWith('draft')
+		controlled.rerender({ searchQuery: 'draft' })
+		expect(controlled.result.current.filteredItems.map((item) => item.path)).toEqual(['/draft.txt'])
+
+		const uncontrolled = renderHook(() => useFileBrowser({ adapter, initialSearchQuery: 'draft' }))
+		await waitFor(() => expect(uncontrolled.result.current.status).toBe('ready'))
+		expect(uncontrolled.result.current.filteredItems.map((item) => item.path)).toEqual(['/draft.txt'])
+		act(() => uncontrolled.result.current.setSearchQuery((query) => `${query} missing`))
+		expect(uncontrolled.result.current.searchQuery).toBe('draft missing')
+		expect(uncontrolled.result.current.filteredItems).toEqual([])
 	})
 
 	test('supports cmd-toggle, shift range, select all loaded, and clear', async () => {

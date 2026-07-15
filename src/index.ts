@@ -25,7 +25,11 @@ export {
 	useFileBrowser,
 	type FileBrowserCapabilities,
 	type FileBrowserClipboard,
+	type FileBrowserKindFilter,
+	type FileBrowserPathChangeContext,
 	type FileBrowserStatus,
+	type FileBrowserUploadConflictResolution,
+	type FileBrowserUploadFilesOptions,
 	type FileBrowserView,
 	type UseFileBrowserOptions,
 	type UseFileBrowserResult

@@ -102,6 +102,74 @@ describe('FileBrowserProvider', () => {
 		await waitFor(() => expect(window.localStorage.getItem('react-file-browser-transfers')).toContain('/demo.bin'))
 	})
 
+	test('disables persistence with storage null and preserves the provider manager across option rerenders', async () => {
+		const user = userEvent.setup()
+		let completeUpload: (() => void) | undefined
+		const upload = vi.fn(
+			(path: string, file: File): Promise<FileNode> =>
+				new Promise((resolve) => {
+					completeUpload = () => resolve({ path, name: file.name, kind: 'file', size: file.size })
+				})
+		)
+		const adapter: FileBrowserAdapter = {
+			list: vi.fn(),
+			createFolder: vi.fn(),
+			delete: vi.fn(),
+			signedUrl: vi.fn(),
+			upload
+		}
+		const renderProvider = () => (
+			<FileBrowserProvider options={{ maxConcurrentUploads: 1, storage: null }}>
+				<EnqueueProbe adapter={adapter} />
+				<SnapshotProbe />
+			</FileBrowserProvider>
+		)
+		const { rerender } = render(renderProvider())
+
+		await user.click(screen.getByRole('button', { name: 'Enqueue upload' }))
+		await waitFor(() => expect(screen.getByLabelText('Upload status')).toHaveTextContent('uploading'))
+		expect(window.localStorage.getItem('react-file-browser-transfers')).toBeNull()
+
+		rerender(renderProvider())
+
+		expect(screen.getByLabelText('Upload status')).toHaveTextContent('uploading')
+		expect(upload).toHaveBeenCalledTimes(1)
+		completeUpload?.()
+		await waitFor(() => expect(screen.getByLabelText('Upload status')).toHaveTextContent('completed'))
+		expect(window.localStorage.getItem('react-file-browser-transfers')).toBeNull()
+	})
+
+	test('does not restore localStorage uploads when persistence is explicitly disabled', () => {
+		window.localStorage.setItem(
+			'react-file-browser-transfers',
+			JSON.stringify({
+				uploads: [
+					{
+						id: 'upload-1',
+						kind: 'upload',
+						status: 'failed',
+						path: '/sensitive.bin',
+						name: 'sensitive.bin',
+						loadedBytes: 0,
+						totalBytes: 10,
+						completedParts: [],
+						createdAt: '2026-07-04T00:00:00.000Z',
+						updatedAt: '2026-07-04T00:00:01.000Z'
+					}
+				],
+				downloads: []
+			})
+		)
+
+		render(
+			<FileBrowserProvider options={{ storage: null }}>
+				<div />
+			</FileBrowserProvider>
+		)
+
+		expect(screen.queryByRole('dialog', { name: 'Resume uploads' })).not.toBeInTheDocument()
+	})
+
 	test('guards hard refresh while transfers are active', async () => {
 		const upload = vi.fn(
 			(_path: string, _file: File, opts?: FileBrowserUploadOptions): Promise<FileNode> =>

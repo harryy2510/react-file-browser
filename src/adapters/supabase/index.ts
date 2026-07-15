@@ -3,8 +3,8 @@ import type { SupabaseFileBrowserAdapterOptions } from './supabase-file-browser-
 
 export type { SupabaseFileBrowserAdapterOptions }
 
-export class SupabaseFileBrowserAdapter extends SupabaseStorageFileBrowserAdapter {
-	constructor(options?: SupabaseFileBrowserAdapterOptions) {
+export class SupabaseFileBrowserAdapter<TMetadata = unknown> extends SupabaseStorageFileBrowserAdapter<TMetadata> {
+	constructor(options?: SupabaseFileBrowserAdapterOptions<TMetadata>) {
 		super(options)
 	}
 }

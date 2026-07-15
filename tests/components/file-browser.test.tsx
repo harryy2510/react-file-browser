@@ -62,6 +62,21 @@ function dataTransferWithEntry(entry: FakeFileEntry | FakeDirectoryEntry) {
 	} as unknown as DataTransfer
 }
 
+function itemMoveDataTransfer() {
+	const data = new Map<string, string>()
+	return {
+		data,
+		dropEffect: 'none',
+		effectAllowed: 'uninitialized',
+		getData(type: string) {
+			return data.get(type) ?? ''
+		},
+		setData(type: string, value: string) {
+			data.set(type, value)
+		}
+	} as unknown as DataTransfer
+}
+
 async function adapterWithFiles(capabilities = {}) {
 	const adapter = new InMemoryFileBrowserAdapter({ capabilities })
 	await adapter.createFolder?.('/assets')
@@ -664,33 +679,53 @@ describe('FileBrowser', () => {
 
 	test('moves dragged items onto folders when move is supported', async () => {
 		const adapter = await adapterWithFiles()
-		const dataTransfer = {
-			data: new Map<string, string>(),
-			dropEffect: 'none',
-			effectAllowed: 'uninitialized',
-			getData(type: string) {
-				return this.data.get(type) ?? ''
-			},
-			setData(type: string, value: string) {
-				this.data.set(type, value)
-			}
-		}
+		const dataTransfer = itemMoveDataTransfer()
 
-		render(<FileBrowser adapter={adapter} />)
+		const { container } = render(<FileBrowser adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
+		fireEvent.dragStart(screen.getByRole('button', { name: 'hero-banner.jpg' }), {
+			dataTransfer
+		})
+		fireEvent.dragEnter(screen.getByRole('grid', { name: 'Files' }), {
+			dataTransfer
+		})
+		expect(screen.queryByText('Drop files to upload')).not.toBeInTheDocument()
+
+		fireEvent.dragOver(screen.getByRole('button', { name: 'assets' }), {
+			dataTransfer
+		})
+		expect(container.querySelector('[data-fb-path="/assets"]')).toHaveAttribute('data-fb-drop-target', 'true')
+
+		fireEvent.drop(screen.getByRole('button', { name: 'assets' }), {
+			dataTransfer
+		})
+		expect(container.querySelector('[data-fb-path="/assets"]')).not.toHaveAttribute('data-fb-drop-target')
+
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'hero-banner.jpg' })).not.toBeInTheDocument())
+		expect((await adapter.list('/assets')).items.map((item) => item.path)).toContain('/assets/hero-banner.jpg')
+	})
+
+	test('highlights folder rows as internal move targets in list view', async () => {
+		const adapter = await adapterWithFiles()
+		const dataTransfer = itemMoveDataTransfer()
+		const { container } = render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		fireEvent.click(screen.getByRole('button', { name: 'List view' }))
 		fireEvent.dragStart(screen.getByRole('button', { name: 'hero-banner.jpg' }), {
 			dataTransfer
 		})
 		fireEvent.dragOver(screen.getByRole('button', { name: 'assets' }), {
 			dataTransfer
 		})
-		fireEvent.drop(screen.getByRole('button', { name: 'assets' }), {
+
+		expect(container.querySelector('[data-fb-path="/assets"]')).toHaveAttribute('data-fb-drop-target', 'true')
+
+		fireEvent.dragEnd(screen.getByRole('button', { name: 'hero-banner.jpg' }), {
 			dataTransfer
 		})
-
-		await waitFor(() => expect(screen.queryByRole('button', { name: 'hero-banner.jpg' })).not.toBeInTheDocument())
-		expect((await adapter.list('/assets')).items.map((item) => item.path)).toContain('/assets/hero-banner.jpg')
+		expect(container.querySelector('[data-fb-path="/assets"]')).not.toHaveAttribute('data-fb-drop-target')
 	})
 
 	test('offers cut then paste into another folder', async () => {
@@ -1108,5 +1143,223 @@ describe('FileBrowser', () => {
 		await user.upload(screen.getByLabelText('Upload files'), new File(['abc'], 'ok.png', { type: 'image/png' }))
 
 		await waitFor(() => expect(manager.getUpload('upload-1')).toBeDefined())
+	})
+
+	test('applies host surface, root label, and ReactNode empty-state extensions', async () => {
+		const adapter = new InMemoryFileBrowserAdapter()
+		const { container } = render(
+			<FileBrowser
+				adapter={adapter}
+				className="host-page-surface"
+				emptyState={{
+					title: <strong>No RAG sources</strong>,
+					description: <span>Upload a source to begin indexing.</span>
+				}}
+				rootLabel="RAG"
+			/>
+		)
+
+		expect(await screen.findByText('No RAG sources')).toBeInTheDocument()
+		expect(screen.getByText('Upload a source to begin indexing.')).toBeInTheDocument()
+		expect(container.querySelector('section')).toHaveClass('host-page-surface')
+		expect(screen.getByRole('button', { name: 'RAG' })).toBeInTheDocument()
+		expect(screen.getByRole('status')).toHaveTextContent('RAG ready.')
+	})
+
+	test('passes typed metadata to item renderers and composes single-item details', async () => {
+		type FiveStarMetadata = { ragStatus: 'indexed' | 'failed' }
+		const user = userEvent.setup()
+		const adapter = new InMemoryFileBrowserAdapter<FiveStarMetadata>({
+			initialEntries: [
+				{
+					id: 'file-uuid',
+					kind: 'file',
+					metadata: { ragStatus: 'indexed' },
+					name: 'handbook.pdf',
+					path: '/handbook.pdf',
+					size: 12
+				}
+			]
+		})
+
+		render(
+			<FileBrowser<FiveStarMetadata>
+				adapter={adapter}
+				renderDetailsContent={(item, defaultContent) => (
+					<>
+						{defaultContent}
+						<div>Details status: {item.metadata?.ragStatus}</div>
+					</>
+				)}
+				renderItemMeta={(item, { view }) => (
+					<span>
+						{item.id}:{item.metadata?.ragStatus}:{view}
+					</span>
+				)}
+			/>
+		)
+
+		expect(await screen.findByText('file-uuid:indexed:grid')).toBeInTheDocument()
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+		expect(screen.getByText('file-uuid:indexed:list')).toBeInTheDocument()
+
+		await user.click(screen.getByRole('button', { name: 'handbook.pdf' }))
+		const details = screen.getByRole('complementary', { name: 'Details' })
+		expect(details).toHaveTextContent('/handbook.pdf')
+		expect(details).toHaveTextContent('Details status: indexed')
+	})
+
+	test('emits opaque item identity and breadcrumb sources for controlled navigation', async () => {
+		const user = userEvent.setup()
+		const onPathChange = vi.fn()
+		const adapter = new InMemoryFileBrowserAdapter({
+			initialEntries: [{ id: 'folder-uuid', kind: 'folder', name: 'sources', path: '/sources' }]
+		})
+		const { rerender } = render(<FileBrowser adapter={adapter} onPathChange={onPathChange} path="/" rootLabel="RAG" />)
+
+		await user.dblClick(await screen.findByRole('button', { name: 'sources' }))
+		expect(onPathChange).toHaveBeenCalledWith('/sources', {
+			item: expect.objectContaining({ id: 'folder-uuid', path: '/sources' }),
+			source: 'item'
+		})
+		expect(screen.getByRole('button', { name: 'sources' })).toBeInTheDocument()
+
+		onPathChange.mockClear()
+		rerender(<FileBrowser adapter={adapter} onPathChange={onPathChange} path="/sources" rootLabel="RAG" />)
+		expect(await screen.findByText('This folder is empty')).toBeInTheDocument()
+		expect(onPathChange).not.toHaveBeenCalled()
+
+		await user.click(screen.getByRole('button', { name: 'RAG' }))
+		expect(onPathChange).toHaveBeenCalledWith('/', { source: 'breadcrumb' })
+	})
+
+	test('supports controlled search and an uncontrolled initial search query', async () => {
+		const onSearchQueryChange = vi.fn()
+		const adapter = new InMemoryFileBrowserAdapter({
+			initialEntries: [
+				{ kind: 'file', name: 'hero.txt', path: '/hero.txt' },
+				{ kind: 'file', name: 'report.txt', path: '/report.txt' }
+			]
+		})
+		const { rerender, unmount } = render(
+			<FileBrowser adapter={adapter} onSearchQueryChange={onSearchQueryChange} searchQuery="hero" />
+		)
+
+		expect(await screen.findByRole('button', { name: 'hero.txt' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'report.txt' })).not.toBeInTheDocument()
+		fireEvent.change(screen.getByRole('searchbox', { name: 'Search files' }), { target: { value: 'report' } })
+		expect(onSearchQueryChange).toHaveBeenCalledWith('report')
+		expect(screen.getByRole('searchbox', { name: 'Search files' })).toHaveValue('hero')
+
+		onSearchQueryChange.mockClear()
+		rerender(<FileBrowser adapter={adapter} onSearchQueryChange={onSearchQueryChange} searchQuery="report" />)
+		expect(await screen.findByRole('button', { name: 'report.txt' })).toBeInTheDocument()
+		expect(onSearchQueryChange).not.toHaveBeenCalled()
+
+		unmount()
+		render(<FileBrowser adapter={adapter} initialSearchQuery="report" />)
+		expect(await screen.findByRole('button', { name: 'report.txt' })).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'hero.txt' })).not.toBeInTheDocument()
+	})
+
+	test('shows only allowed upload conflict resolutions', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser adapter={adapter} uploadConflictResolutions={['keep-both', 'skip']} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.upload(screen.getByLabelText('Upload files'), textFile('hero-banner.jpg', 'replacement'))
+
+		const dialog = await screen.findByRole('dialog', { name: 'File conflict' })
+		expect(within(dialog).getByRole('button', { name: 'Keep both' })).toBeInTheDocument()
+		expect(within(dialog).getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+		expect(within(dialog).queryByRole('button', { name: 'Replace' })).not.toBeInTheDocument()
+	})
+
+	test('fails closed when no upload conflict resolutions are enabled', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		const manager = new TransferManager({ idFactory: () => 'upload-1' })
+
+		render(
+			<FileBrowserProvider manager={manager}>
+				<FileBrowser adapter={adapter} uploadConflictResolutions={[]} />
+			</FileBrowserProvider>
+		)
+		await screen.findByText('hero-banner.jpg')
+		await user.upload(screen.getByLabelText('Upload files'), textFile('hero-banner.jpg', 'replacement'))
+
+		const alert = await screen.findByRole('alert', { name: 'Upload rejected' })
+		expect(alert).toHaveTextContent('No upload conflict resolutions are enabled')
+		expect(screen.queryByRole('dialog', { name: 'File conflict' })).not.toBeInTheDocument()
+		expect(manager.getUpload('upload-1')).toBeUndefined()
+	})
+
+	test('hides unsupported client-zip downloads but keeps single-file downloads', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles({ bulkDownloadUrl: false })
+
+		render(<FileBrowser adapter={adapter} allowClientZipFallback={false} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.click(screen.getByRole('button', { name: 'assets' }))
+		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).queryByText('Download')).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Download assets' })).not.toBeInTheDocument()
+
+		await user.click(screen.getByRole('button', { name: 'hero-banner.jpg' }))
+		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByText('Download')).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Download hero-banner.jpg' })).toBeInTheDocument()
+
+		await user.keyboard('{Meta>}')
+		await user.click(screen.getByRole('button', { name: 'quarterly-report.pdf' }))
+		await user.keyboard('{/Meta}')
+		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).queryByText('Download')).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Download 2 items' })).not.toBeInTheDocument()
+	})
+
+	test('passes the client-zip policy to server-backed bulk downloads', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		const manager = new TransferManager({ idFactory: () => 'download-1' })
+		const prepareBulkDownload = vi.spyOn(manager, 'prepareBulkDownload')
+
+		render(
+			<FileBrowserProvider manager={manager}>
+				<FileBrowser adapter={adapter} allowClientZipFallback={false} />
+			</FileBrowserProvider>
+		)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'assets' }))
+		await user.click(screen.getByRole('button', { name: 'Download assets' }))
+
+		expect(prepareBulkDownload).toHaveBeenCalledWith(
+			expect.objectContaining({ allowClientZipFallback: false, paths: ['/assets'] })
+		)
+	})
+
+	test('rejects an oversized upload batch before creating folders or enqueueing files', async () => {
+		const adapter = await adapterWithFiles()
+		const manager = new TransferManager({ idFactory: () => 'upload-1' })
+		if (!adapter.createFolder) {
+			throw new Error('adapter under test must include createFolder')
+		}
+		const createFolder = vi.spyOn(adapter, 'createFolder')
+
+		render(
+			<FileBrowserProvider manager={manager}>
+				<FileBrowser adapter={adapter} uploadPolicy={{ maxFilesPerBatch: 1 }} />
+			</FileBrowserProvider>
+		)
+		await screen.findByText('hero-banner.jpg')
+		fireEvent.drop(screen.getByRole('grid', { name: 'Files' }), {
+			dataTransfer: dataTransferWithEntry(
+				fakeDirectoryEntry('sources', [fakeFileEntry(textFile('one.txt')), fakeFileEntry(textFile('two.txt'))])
+			)
+		})
+
+		const alert = await screen.findByRole('alert', { name: 'Upload rejected' })
+		expect(alert).toHaveTextContent('Batch contains 2 files; maximum is 1')
+		expect(createFolder).not.toHaveBeenCalled()
+		expect(manager.getUpload('upload-1')).toBeUndefined()
 	})
 })

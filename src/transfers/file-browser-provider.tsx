@@ -1,5 +1,5 @@
 import { Download, Pause, Play, X } from 'lucide-react'
-import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react'
 import type { PropsWithChildren } from 'react'
 import { createPortal } from 'react-dom'
 import { TransferManager } from './transfer-manager'
@@ -34,7 +34,8 @@ export function FileBrowserProvider({
 	resolveRestoredUpload,
 	showFloatingWidget = true
 }: FileBrowserProviderProps) {
-	const transferManager = useMemo(() => manager ?? new TransferManager(withDefaultStorage(options)), [manager, options])
+	const [providerManager] = useState(() => manager ?? new TransferManager(withDefaultStorage(options)))
+	const transferManager = manager ?? providerManager
 	const snapshot = useTransfersSnapshot(transferManager)
 	const [resumePromptDismissed, setResumePromptDismissed] = useState(false)
 	const restorableUploads = transferManager.getRestorableUploads()
@@ -111,7 +112,7 @@ function useBeforeUnloadGuard(manager: TransferManager): void {
 }
 
 function withDefaultStorage(options: TransferManagerOptions | undefined): TransferManagerOptions {
-	if (options?.storage) {
+	if (options?.storage !== undefined) {
 		return options
 	}
 

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, expectTypeOf, test, vi } from 'vitest'
 import { R2FileBrowserAdapter } from '@/adapters/r2'
 import { S3FileBrowserAdapter } from '@/adapters/s3'
 import { SupabaseFileBrowserAdapter } from '@/adapters/supabase'
@@ -69,6 +69,35 @@ describe('cloud adapter subpath exports', () => {
 			name: 'Hero'
 		})
 		expect(adapter.move).toBeUndefined()
+	})
+
+	test('preserves typed metadata through host-backed delegates', async () => {
+		type RagMetadata = { ragStatus: 'indexed' | 'pending' }
+		const implementation: FileBrowserAdapter<RagMetadata> = {
+			delete: () => Promise.resolve(),
+			list: () =>
+				Promise.resolve({
+					items: [
+						{
+							id: 'asset-id',
+							kind: 'file',
+							metadata: { ragStatus: 'indexed' },
+							name: 'asset.jpg',
+							path: '/asset.jpg'
+						}
+					]
+				}),
+			signedUrl: (path) => Promise.resolve(path),
+			upload: (path, file) => Promise.resolve({ kind: 'file', name: file.name, path })
+		}
+		const adapter = new S3FileBrowserAdapter({ implementation })
+		const result = await adapter.list('/')
+
+		expectTypeOf(result.items[0]?.metadata).toEqualTypeOf<RagMetadata | undefined>()
+		expect(result.items[0]).toMatchObject({
+			id: 'asset-id',
+			metadata: { ragStatus: 'indexed' }
+		})
 	})
 
 	test('S3 adapter maps SDK list signed URL and upload operations', async () => {
