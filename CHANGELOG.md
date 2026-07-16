@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/harryy2510/react-file-browser/compare/v1.1.0...v1.1.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **file-browser:** close delete dialog before deletion ([e0805fb](https://github.com/harryy2510/react-file-browser/commit/e0805fb729c7cf31ce762667d560519979c65bc5))
+
 # [1.1.0](https://github.com/harryy2510/react-file-browser/compare/v1.0.0...v1.1.0) (2026-07-15)
 
 
