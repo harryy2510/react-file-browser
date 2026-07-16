@@ -617,15 +617,15 @@ export function FileBrowser<TMetadata = unknown>({
 	}
 
 	async function deleteSelectedItems() {
+		setDeleteConfirmOpen(false)
 		try {
 			await browser.deleteSelected()
-			setDeleteConfirmOpen(false)
 		} catch (error) {
 			if (error instanceof FileBrowserBulkActionError) {
-				setDeleteConfirmOpen(false)
 				setBulkFailure(error)
 				return
 			}
+			setDeleteConfirmOpen(true)
 			throw error
 		}
 	}
@@ -1199,6 +1199,7 @@ export function FileBrowser<TMetadata = unknown>({
 							</button>
 						) : null}
 						<input
+							accept={uploadPolicy?.allowedMimeTypes?.length ? uploadPolicy.allowedMimeTypes.join(',') : undefined}
 							aria-label="Upload files"
 							multiple
 							onChange={(event) => void uploadInputFiles(event.target.files)}

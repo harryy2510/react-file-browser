@@ -510,6 +510,14 @@ describe('FileBrowser', () => {
 	test('confirms before deleting selected items', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
+		let finishDelete: (() => void) | undefined
+		const deleteMock = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishDelete = resolve
+				})
+		)
+		adapter.delete = deleteMock
 
 		render(<FileBrowser adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
@@ -523,7 +531,10 @@ describe('FileBrowser', () => {
 
 		await user.click(screen.getByRole('button', { name: 'Delete' }))
 		await user.click(screen.getByRole('button', { name: 'Delete selected' }))
+		expect(screen.queryByRole('dialog', { name: 'Delete selected items' })).not.toBeInTheDocument()
+		expect(deleteMock).toHaveBeenCalledWith(['/hero-banner.jpg'])
 
+		finishDelete?.()
 		await waitFor(() => expect(screen.queryByRole('button', { name: 'hero-banner.jpg' })).not.toBeInTheDocument())
 	})
 
@@ -1110,7 +1121,7 @@ describe('FileBrowser', () => {
 	})
 
 	test('rejects uploads that violate size type and quota policy', async () => {
-		const user = userEvent.setup()
+		const user = userEvent.setup({ applyAccept: false })
 		const adapter = await adapterWithFiles()
 		const manager = new TransferManager({ idFactory: () => 'upload-1' })
 
@@ -1119,7 +1130,7 @@ describe('FileBrowser', () => {
 				<FileBrowser
 					adapter={adapter}
 					uploadPolicy={{
-						allowedMimeTypes: ['image/png'],
+						allowedMimeTypes: ['image/png', '.pdf'],
 						maxFileSizeBytes: 4,
 						remainingQuotaBytes: 8
 					}}
@@ -1127,11 +1138,10 @@ describe('FileBrowser', () => {
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
+		const uploadInput = screen.getByLabelText('Upload files')
+		expect(uploadInput).toHaveAttribute('accept', 'image/png,.pdf')
 
-		await user.upload(
-			screen.getByLabelText('Upload files'),
-			new File(['too large'], 'notes.txt', { type: 'text/plain' })
-		)
+		await user.upload(uploadInput, new File(['too large'], 'notes.txt', { type: 'text/plain' }))
 
 		const alert = screen.getByRole('alert', { name: 'Upload rejected' })
 		expect(alert).toHaveTextContent('notes.txt')
@@ -1140,7 +1150,7 @@ describe('FileBrowser', () => {
 		expect(manager.getUpload('upload-1')).toBeUndefined()
 
 		await user.click(screen.getByRole('button', { name: 'Dismiss upload rejection' }))
-		await user.upload(screen.getByLabelText('Upload files'), new File(['abc'], 'ok.png', { type: 'image/png' }))
+		await user.upload(uploadInput, new File(['abc'], 'ok.png', { type: 'image/png' }))
 
 		await waitFor(() => expect(manager.getUpload('upload-1')).toBeDefined())
 	})
