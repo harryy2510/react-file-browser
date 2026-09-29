@@ -63,6 +63,8 @@ export type UseFileBrowserOptions<TMetadata = unknown> = {
 	searchQuery?: string
 	initialSearchQuery?: string
 	onSearchQueryChange?: (query: string) => void
+	/** The view the browser opens in. Defaults to the list. */
+	initialView?: FileBrowserView
 }
 
 export type UseFileBrowserResult<TMetadata = unknown> = {
@@ -126,7 +128,8 @@ export function useFileBrowser<TMetadata = unknown>({
 	onPathChange,
 	searchQuery: controlledSearchQuery,
 	initialSearchQuery = '',
-	onSearchQueryChange
+	onSearchQueryChange,
+	initialView = 'list'
 }: UseFileBrowserOptions<TMetadata>): UseFileBrowserResult<TMetadata> {
 	const controlledPath = path === undefined ? undefined : normalizeFileBrowserPath(path)
 	const [uncontrolledPath, setUncontrolledPath] = useState(() => normalizeFileBrowserPath(initialPath))
@@ -139,7 +142,7 @@ export function useFileBrowser<TMetadata = unknown>({
 	const [focusedPath, setFocusedPath] = useState<string | null>(null)
 	const [rangeAnchor, setRangeAnchor] = useState<string | null>(null)
 	const [clipboard, setClipboard] = useState<FileBrowserClipboard>(null)
-	const [view, setViewState] = useState<FileBrowserView>('grid')
+	const [view, setViewState] = useState<FileBrowserView>(initialView)
 	const viewRef = useRef(view)
 	viewRef.current = view
 	const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState(initialSearchQuery)

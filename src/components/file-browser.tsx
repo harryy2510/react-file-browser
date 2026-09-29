@@ -24,7 +24,7 @@ import {
 	Upload,
 	X as XIcon
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import Selecto from 'react-selecto'
 import type { OnSelect } from 'react-selecto'
@@ -53,6 +53,8 @@ export type FileBrowserProps<TMetadata = unknown> = {
 		title: ReactNode
 		description?: ReactNode
 	}
+	/** The view the browser opens in: `list` (default) or `grid`. */
+	initialView?: FileBrowserView
 	initialPath?: string
 	path?: string
 	onPathChange?: (path: string, context: FileBrowserPathChangeContext<TMetadata>) => void
@@ -193,6 +195,7 @@ export function FileBrowser<TMetadata = unknown>({
 	className,
 	emptyState,
 	initialPath = '/',
+	initialView,
 	path,
 	onPathChange,
 	rootLabel = 'Files',
@@ -216,6 +219,7 @@ export function FileBrowser<TMetadata = unknown>({
 		onPathChange,
 		searchQuery,
 		initialSearchQuery,
+		initialView,
 		onSearchQueryChange
 	})
 	const transfers = useTransfers()
@@ -1158,6 +1162,16 @@ export function FileBrowser<TMetadata = unknown>({
 	const previewPosition = preview ? previewFiles.findIndex((item) => item.path === preview.item.path) + 1 : 0
 	const previewNavButton = `grid size-12 shrink-0 place-items-center rounded-full border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-surface-2)] disabled:opacity-40 ${FOCUS_RING} ${CONTROL_MOTION}`
 
+	const clipboardStatus = clipboardNotice ? (
+		<span
+			aria-label="Clipboard status"
+			className={`shrink-0 whitespace-nowrap rounded-full bg-[var(--fb-accent-soft)] px-3 py-1 text-[var(--fb-font-sm)] font-semibold ${ACCENT_INK} ${CONTROL_MOTION}`}
+			role="status"
+		>
+			{clipboardNotice}
+		</span>
+	) : null
+
 	const secondaryControls = (
 		<div className="flex min-w-0 flex-wrap items-center gap-3">
 			<SelectField
@@ -1353,7 +1367,7 @@ export function FileBrowser<TMetadata = unknown>({
 					status: browser.status
 				})}
 			</div>
-			<div className="@container/fb-main flex min-w-0 flex-1 flex-col">
+			<div className="flex min-w-0 flex-1 flex-col">
 				<input
 					accept={uploadPolicy?.allowedMimeTypes?.length ? uploadPolicy.allowedMimeTypes.join(',') : undefined}
 					aria-label="Upload files"
@@ -1364,7 +1378,7 @@ export function FileBrowser<TMetadata = unknown>({
 					className="hidden"
 				/>
 				<header
-					className={`flex min-h-[var(--fb-header-h)] min-w-0 flex-wrap items-center gap-3 border-b @min-[72rem]/fb-main:flex-nowrap border-[var(--fb-border)] px-[var(--fb-pad)] py-3 ${isNarrow ? 'px-4' : ''} ${SURFACE_MOTION}`}
+					className={`flex min-h-[var(--fb-header-h)] min-w-0 flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-3 ${isNarrow ? 'px-4' : ''} ${SURFACE_MOTION}`}
 				>
 					{mobileSelection ? (
 						<div className="flex w-full min-w-0 items-center gap-[calc(var(--fb-gap)*2)]">
@@ -1389,19 +1403,16 @@ export function FileBrowser<TMetadata = unknown>({
 						</div>
 					) : (
 						<>
-							<div
-								className={
-									isNarrow
-										? 'min-w-0 flex-1'
-										: 'w-full min-w-0 overflow-hidden @min-[72rem]/fb-main:w-auto @min-[72rem]/fb-main:flex-1'
-								}
-							>
-								<Breadcrumbs
-									narrow={isNarrow}
-									onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
-									path={browser.currentPath}
-									rootLabel={rootLabel}
-								/>
+							<div className={`flex min-w-0 items-center gap-3 ${isNarrow ? 'flex-1' : 'w-full'}`}>
+								<div className="min-w-0 flex-1">
+									<Breadcrumbs
+										narrow={isNarrow}
+										onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
+										path={browser.currentPath}
+										rootLabel={rootLabel}
+									/>
+								</div>
+								{clipboardStatus}
 							</div>
 							{isNarrow ? (
 								<button
@@ -1417,22 +1428,10 @@ export function FileBrowser<TMetadata = unknown>({
 							) : null}
 						</>
 					)}
-					{clipboardNotice ? (
-						<span
-							aria-label="Clipboard status"
-							className={`rounded-full bg-[var(--fb-accent-soft)] px-3 py-1 text-[var(--fb-font-sm)] font-semibold ${ACCENT_INK} ${CONTROL_MOTION}`}
-							role="status"
-						>
-							{clipboardNotice}
-						</span>
-					) : null}
+					{mobileSelection ? clipboardStatus : null}
 					{!mobileSelection ? (
-						<div
-							className={`flex min-w-0 flex-wrap items-center gap-3 ${isNarrow ? 'w-full' : 'w-full @min-[72rem]/fb-main:w-auto @min-[72rem]/fb-main:shrink-0 @min-[72rem]/fb-main:flex-nowrap'}`}
-						>
-							<label
-								className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1 @min-[72rem]/fb-main:w-[240px] @min-[72rem]/fb-main:flex-none'}`}
-							>
+						<div className="flex w-full min-w-0 flex-wrap items-center gap-3">
+							<label className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1'}`}>
 								<Search
 									aria-hidden="true"
 									className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
@@ -3185,73 +3184,180 @@ function Breadcrumbs({
 	narrow: boolean
 }) {
 	const [ancestorsOpen, setAncestorsOpen] = useState(false)
+	const [fit, setFit] = useState<BreadcrumbFit | null>(null)
+	const listRef = useRef<HTMLDivElement>(null)
+	const measureRef = useRef<HTMLDivElement>(null)
+	const menuRef = useRef<HTMLSpanElement>(null)
 	const parts = path.split('/').filter(Boolean)
-	const crumbs = [{ label: rootLabel, path: '/' }].concat(
+	const crumbs: BreadcrumbCrumb[] = [{ label: rootLabel, path: '/' }].concat(
 		parts.map((part, index) => ({
 			label: part,
 			path: `/${parts.slice(0, index + 1).join('/')}`
 		}))
 	)
-	const visibleCrumbs: VisibleBreadcrumbCrumb[] =
-		narrow && crumbs.length > 1
-			? [
-					{ kind: 'collapsed', key: 'collapsed' },
-					{ ...crumbs[crumbs.length - 1], kind: 'crumb', key: path }
-				]
-			: getVisibleBreadcrumbs(crumbs)
+	const layout = fit ? getFittedBreadcrumbs(crumbs, fit) : getFallbackBreadcrumbs(crumbs, narrow)
+
+	// Show as much of the path as the row can hold: measure every crumb off-screen, then keep the root plus
+	// as many trailing folders as fit, collapsing only the middle.
+	useLayoutEffect(() => {
+		const list = listRef.current
+		const measurer = measureRef.current
+		if (!list || !measurer) return
+		const measure = () => {
+			const available = list.clientWidth
+			if (available <= 0) return
+			const items = Array.from(measurer.querySelectorAll<HTMLElement>('[data-fb-crumb-measure]'))
+			const ellipsis = measurer.querySelector<HTMLElement>('[data-fb-crumb-ellipsis]')
+			const widths = items.map((item) => item.getBoundingClientRect().width + BREADCRUMB_GAP_PX)
+			const next = fitBreadcrumbs(widths, (ellipsis?.getBoundingClientRect().width ?? 0) + BREADCRUMB_GAP_PX, available)
+			setFit((current) => (current?.lead === next.lead && current.tail === next.tail ? current : next))
+		}
+		measure()
+		if (typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver(() => measure())
+		observer.observe(list)
+		return () => observer.disconnect()
+	}, [path, rootLabel])
+
+	useEffect(() => {
+		if (!ancestorsOpen || narrow) return
+		menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+		const close = (event: PointerEvent) => {
+			if (!menuRef.current?.contains(event.target as Node)) setAncestorsOpen(false)
+		}
+		document.addEventListener('pointerdown', close)
+		return () => document.removeEventListener('pointerdown', close)
+	}, [ancestorsOpen, narrow])
+
+	function navigateFromMenu(nextPath: string) {
+		setAncestorsOpen(false)
+		void onNavigate(nextPath)
+	}
+
+	const crumbText = `rounded-[calc(var(--fb-radius)-4px)] px-0.5 py-1 [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)]`
 
 	return (
-		<nav aria-label="Breadcrumb" className="flex min-w-0 max-w-full items-center gap-1.5 text-[var(--fb-font)]">
+		<nav aria-label="Breadcrumb" className="flex min-w-0 max-w-full items-center gap-1 text-[var(--fb-font)]">
 			{narrow && parts.length > 0 ? (
 				<button
 					aria-label="Parent folder"
-					className={`${toolButton(false)} border-transparent bg-transparent text-[var(--fb-text)]`}
+					className={`${toolButton(false)} -ml-2 border-transparent bg-transparent text-[var(--fb-text)]`}
 					onClick={() => void onNavigate(getFileBrowserDirname(path))}
 					type="button"
 				>
 					<ChevronLeft aria-hidden="true" className="size-4" />
 				</button>
 			) : null}
-			{visibleCrumbs.map((crumb, index) => (
-				<span className="flex min-w-0 items-center gap-1.5 last:flex-1" key={crumb.key}>
-					{index > 0 ? (
-						<ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--fb-muted)]" strokeWidth={2} />
-					) : null}
-					{crumb.kind === 'collapsed' ? (
-						<button
-							aria-label="Collapsed breadcrumb"
-							aria-haspopup="dialog"
-							className={`inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-[calc(var(--fb-radius)-4px)] bg-[var(--fb-surface-2)] px-1.5 text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)] hover:text-[var(--fb-text)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
-							onClick={() => setAncestorsOpen(true)}
-							type="button"
-						>
-							…
-						</button>
-					) : (
-						<button
-							aria-current={index === visibleCrumbs.length - 1 ? 'page' : undefined}
-							className={`min-w-0 max-w-[180px] truncate rounded-[calc(var(--fb-radius)-4px)] px-0.5 py-1 hover:text-[var(--fb-text)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${FOCUS_RING} ${CONTROL_MOTION} ${
-								index === visibleCrumbs.length - 1 ? 'font-semibold text-[var(--fb-text)]' : 'text-[var(--fb-muted)]'
-							}`}
-							onClick={() => void onNavigate(crumb.path)}
-							type="button"
-						>
-							{crumb.label}
-						</button>
-					)}
-				</span>
-			))}
-			{ancestorsOpen ? (
+			<div className="relative flex min-w-0 flex-1 items-center gap-1.5" ref={listRef}>
+				<div
+					aria-hidden="true"
+					className="pointer-events-none invisible absolute left-0 top-0 flex h-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+					ref={measureRef}
+				>
+					{crumbs.map((crumb, index) => (
+						<span className="flex shrink-0 items-center gap-1.5" data-fb-crumb-measure key={crumb.path}>
+							{index > 0 ? <ChevronRight className="size-3.5 shrink-0" strokeWidth={2} /> : null}
+							<span
+								className={`${crumbText} block max-w-[240px] truncate ${index === crumbs.length - 1 ? 'font-semibold' : ''}`}
+							>
+								{crumb.label}
+							</span>
+						</span>
+					))}
+					<span className="flex shrink-0 items-center gap-1.5" data-fb-crumb-ellipsis>
+						<ChevronRight className="size-3.5 shrink-0" strokeWidth={2} />
+						<span className="inline-flex h-[26px] min-w-[26px] px-1.5">…</span>
+					</span>
+				</div>
+				{layout.map((crumb, index) => (
+					<span className="flex min-w-0 shrink-0 items-center gap-1.5 last:shrink last:grow" key={crumb.key}>
+						{index > 0 ? (
+							<ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--fb-muted)]" strokeWidth={2} />
+						) : null}
+						{crumb.kind === 'collapsed' ? (
+							<span className="relative inline-flex" ref={menuRef}>
+								<button
+									aria-expanded={ancestorsOpen}
+									aria-haspopup={narrow ? 'dialog' : 'menu'}
+									aria-label="Collapsed breadcrumb"
+									className={`inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-[calc(var(--fb-radius)-4px)] px-1.5 text-[calc(var(--fb-font)-1px)] hover:text-[var(--fb-text)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+										ancestorsOpen && !narrow
+											? `bg-[var(--fb-accent-soft)] ${ACCENT_INK}`
+											: 'bg-[var(--fb-surface-2)] text-[var(--fb-muted)]'
+									}`}
+									onClick={() => setAncestorsOpen((open) => !open)}
+									title={`${crumb.hidden.length} hidden ${crumb.hidden.length === 1 ? 'folder' : 'folders'}`}
+									type="button"
+								>
+									…
+								</button>
+								{ancestorsOpen && !narrow ? (
+									<div
+										aria-label="Hidden folders"
+										className="absolute left-0 top-[calc(100%+6px)] z-50 flex max-h-[min(360px,60dvh)] w-max min-w-[200px] max-w-[min(420px,80vw)] flex-col overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-1.5 shadow-[0_12px_32px_color-mix(in_oklch,var(--fb-text)_12%,transparent)]"
+										onKeyDown={(event) => {
+											if (event.key === 'Escape' || event.key === 'Tab') {
+												event.stopPropagation()
+												setAncestorsOpen(false)
+												if (event.key === 'Escape') menuRef.current?.querySelector<HTMLElement>('button')?.focus()
+												return
+											}
+											if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
+											event.preventDefault()
+											event.stopPropagation()
+											const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+											const index = items.indexOf(document.activeElement as HTMLElement)
+											items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+										}}
+										role="menu"
+									>
+										{crumb.hidden.map((hidden, depth) => (
+											<button
+												className={`flex min-h-9 w-full min-w-0 items-center gap-2 rounded-[calc(var(--fb-radius)-2px)] pr-2.5 text-left outline-none hover:bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] focus:bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] ${CONTROL_MOTION}`}
+												key={hidden.path}
+												onClick={() => navigateFromMenu(hidden.path)}
+												role="menuitem"
+												style={{ paddingLeft: `calc(10px + 12px * ${Math.min(depth, 6)})` }}
+												title={hidden.label}
+												type="button"
+											>
+												<Folder
+													aria-hidden="true"
+													className="size-4 shrink-0 fill-current text-[var(--fb-folder)]"
+													strokeWidth={0}
+												/>
+												<span className="truncate">{hidden.label}</span>
+											</button>
+										))}
+									</div>
+								) : null}
+							</span>
+						) : (
+							<button
+								aria-current={index === layout.length - 1 ? 'page' : undefined}
+								className={`${crumbText} min-w-0 truncate hover:text-[var(--fb-text)] ${FOCUS_RING} ${CONTROL_MOTION} ${
+									index === layout.length - 1
+										? 'font-semibold text-[var(--fb-text)]'
+										: 'max-w-[240px] text-[var(--fb-muted)]'
+								}`}
+								onClick={() => void onNavigate(crumb.path)}
+								title={crumb.label}
+								type="button"
+							>
+								{crumb.label}
+							</button>
+						)}
+					</span>
+				))}
+			</div>
+			{ancestorsOpen && narrow ? (
 				<ActionSheet label="Folder path" onClose={() => setAncestorsOpen(false)}>
 					<div className="flex min-w-0 flex-col">
 						{crumbs.map((crumb) => (
 							<button
 								key={crumb.path}
 								className={`${commandButton(false)} my-[var(--fb-gap)] block w-full truncate text-left`}
-								onClick={() => {
-									setAncestorsOpen(false)
-									void onNavigate(crumb.path)
-								}}
+								onClick={() => navigateFromMenu(crumb.path)}
 								type="button"
 							>
 								{crumb.label}
@@ -3264,9 +3370,16 @@ function Breadcrumbs({
 	)
 }
 
+const BREADCRUMB_GAP_PX = 6
+
 type BreadcrumbCrumb = {
 	label: string
 	path: string
+}
+
+type BreadcrumbFit = {
+	lead: number
+	tail: number
 }
 
 type VisibleBreadcrumbCrumb =
@@ -3277,23 +3390,48 @@ type VisibleBreadcrumbCrumb =
 	| {
 			kind: 'collapsed'
 			key: string
+			hidden: BreadcrumbCrumb[]
 	  }
 
-function getVisibleBreadcrumbs(crumbs: BreadcrumbCrumb[]): VisibleBreadcrumbCrumb[] {
-	if (crumbs.length <= 4) {
-		return crumbs.map((crumb) => ({ ...crumb, kind: 'crumb', key: crumb.path }))
+// widths include the separator and gap each crumb brings; lead/tail count crumbs kept at each end.
+function fitBreadcrumbs(widths: number[], ellipsisWidth: number, available: number): BreadcrumbFit {
+	const count = widths.length
+	if (widths.reduce((total, width) => total + width, 0) <= available) return { lead: count, tail: 0 }
+	let used = widths[0] + ellipsisWidth + widths[count - 1]
+	let tail = 1
+	while (tail < count - 2 && used + widths[count - 1 - tail] <= available) {
+		used += widths[count - 1 - tail]
+		tail += 1
 	}
+	let lead = 1
+	while (lead + tail < count - 1 && used + widths[lead] <= available) {
+		used += widths[lead]
+		lead += 1
+	}
+	return { lead, tail }
+}
 
+function getFittedBreadcrumbs(crumbs: BreadcrumbCrumb[], fit: BreadcrumbFit): VisibleBreadcrumbCrumb[] {
+	const toVisible = (crumb: BreadcrumbCrumb) => ({ ...crumb, kind: 'crumb' as const, key: crumb.path })
+	if (fit.lead + fit.tail >= crumbs.length) return crumbs.map(toVisible)
 	return [
-		{ ...crumbs[0], kind: 'crumb', key: crumbs[0].path },
-		{ ...crumbs[1], kind: 'crumb', key: crumbs[1].path },
-		{ kind: 'collapsed', key: 'collapsed' },
-		...crumbs.slice(-2).map((crumb) => ({
-			...crumb,
-			kind: 'crumb' as const,
-			key: crumb.path
-		}))
+		...crumbs.slice(0, fit.lead).map(toVisible),
+		{ kind: 'collapsed', key: 'collapsed', hidden: crumbs.slice(fit.lead, crumbs.length - fit.tail) },
+		...crumbs.slice(crumbs.length - fit.tail).map(toVisible)
 	]
+}
+
+// Used before layout can be measured (first paint, non-DOM environments).
+function getFallbackBreadcrumbs(crumbs: BreadcrumbCrumb[], narrow: boolean): VisibleBreadcrumbCrumb[] {
+	if (narrow && crumbs.length > 1) {
+		return [
+			{ kind: 'collapsed', key: 'collapsed', hidden: crumbs.slice(0, -1) },
+			{ ...crumbs[crumbs.length - 1], kind: 'crumb', key: crumbs[crumbs.length - 1].path }
+		]
+	}
+	return crumbs.length <= 4
+		? getFittedBreadcrumbs(crumbs, { lead: crumbs.length, tail: 0 })
+		: getFittedBreadcrumbs(crumbs, { lead: 2, tail: 2 })
 }
 
 function DetailsPanel<TMetadata>({

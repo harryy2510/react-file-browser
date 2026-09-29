@@ -220,6 +220,7 @@ or `bulkDownloadUrl`, those controls are hidden. Recursive folder drops are reje
 | --- | --- | --- | --- |
 | `adapter` | `FileBrowserAdapter` | — (required) | Storage backend. |
 | `initialPath` | `string` | `"/"` | Directory to open on mount. |
+| `initialView` | `'list' \| 'grid'` | `'list'` | The view the browser opens in. |
 | `path` | `string` | None | Controlled current directory. |
 | `onPathChange` | `(path, context) => void` | None | Receives item, breadcrumb, and programmatic navigation. |
 | `searchQuery` | `string` | None | Controlled local search query. |

@@ -109,11 +109,31 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('dialog', { name: /Preview/ })).toHaveTextContent('quarterly-report.pdf')
 	})
 
+	test('opens in the list view unless another view is asked for', async () => {
+		const adapter = await adapterWithFiles()
+		const { unmount } = render(
+			<FileBrowserProvider>
+				<FileBrowser adapter={adapter} />
+			</FileBrowserProvider>
+		)
+		await screen.findByText('hero-banner.jpg')
+		expect(screen.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true')
+		unmount()
+
+		render(
+			<FileBrowserProvider>
+				<FileBrowser adapter={adapter} initialView="grid" />
+			</FileBrowserProvider>
+		)
+		await screen.findByText('hero-banner.jpg')
+		expect(screen.getByRole('button', { name: 'Grid view' })).toHaveAttribute('aria-pressed', 'true')
+	})
+
 	test('keeps selection chrome stable and clears selection from empty canvas', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
@@ -132,7 +152,7 @@ describe('FileBrowser', () => {
 	test('applies subtle motion to core browser chrome', async () => {
 		const adapter = await adapterWithFiles()
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('duration-150')
@@ -415,7 +435,7 @@ describe('FileBrowser', () => {
 	test('grid selection surface fills the scrollable file area', async () => {
 		const adapter = await adapterWithFiles()
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		expect(screen.getByRole('grid', { name: 'Files' })).toHaveClass('min-h-full')
@@ -475,6 +495,46 @@ describe('FileBrowser', () => {
 		expect(within(breadcrumb).getByLabelText('Collapsed breadcrumb')).toHaveTextContent('…')
 		expect(within(breadcrumb).getByRole('button', { name: 'acme' })).toBeInTheDocument()
 		expect(within(breadcrumb).getByRole('button', { name: 'briefs' })).toBeInTheDocument()
+	})
+
+	test('fits as many trailing breadcrumbs as the measured row holds', async () => {
+		const adapter = new InMemoryFileBrowserAdapter()
+		if (!adapter.createFolder) {
+			throw new Error('adapter under test must include createFolder')
+		}
+		for (const path of ['/a', '/a/b', '/a/b/c', '/a/b/c/d', '/a/b/c/d/e']) {
+			await adapter.createFolder(path)
+		}
+		// Every crumb (and the ellipsis) measures 250px + 6px gap; a 1200px row fits root + … + two trailing crumbs.
+		const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200)
+		const rect = vi
+			.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+			.mockReturnValue({ width: 250, height: 20, top: 0, left: 0, right: 250, bottom: 20, x: 0, y: 0, toJSON() {} })
+		try {
+			const user = userEvent.setup()
+			render(<FileBrowser adapter={adapter} initialPath="/a/b/c/d/e" />)
+			await screen.findByRole('grid', { name: 'Files' })
+
+			const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' })
+			await waitFor(() => expect(within(breadcrumb).getByRole('button', { name: 'd' })).toBeInTheDocument())
+			expect(within(breadcrumb).getByRole('button', { name: 'Files' })).toBeInTheDocument()
+			expect(within(breadcrumb).getByRole('button', { name: 'e' })).toHaveAttribute('aria-current', 'page')
+			expect(within(breadcrumb).queryByRole('button', { name: 'a' })).not.toBeInTheDocument()
+
+			await user.click(within(breadcrumb).getByRole('button', { name: 'Collapsed breadcrumb' }))
+			const menu = screen.getByRole('menu', { name: 'Hidden folders' })
+			expect(
+				within(menu)
+					.getAllByRole('menuitem')
+					.map((item) => item.textContent)
+			).toEqual(['a', 'b', 'c'])
+			await user.click(within(menu).getByRole('menuitem', { name: 'b' }))
+			await waitFor(() => expect(screen.queryByRole('menu', { name: 'Hidden folders' })).not.toBeInTheDocument())
+			expect(await within(breadcrumb).findByRole('button', { name: 'b', current: 'page' })).toBeInTheDocument()
+		} finally {
+			clientWidth.mockRestore()
+			rect.mockRestore()
+		}
 	})
 
 	test('filters visible files from the toolbar', async () => {
@@ -604,7 +664,7 @@ describe('FileBrowser', () => {
 			value: () => Promise.reject(new FileBrowserAdapterError('conflict', 'Name already exists'))
 		})
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		await user.click(screen.getByText('hero-banner.jpg'))
@@ -630,7 +690,7 @@ describe('FileBrowser', () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		await user.keyboard('{ArrowDown}')
@@ -806,7 +866,7 @@ describe('FileBrowser', () => {
 		const adapter = await adapterWithFiles()
 		const dataTransfer = itemMoveDataTransfer()
 
-		const { container } = render(<FileBrowser adapter={adapter} />)
+		const { container } = render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		fireEvent.dragStart(screen.getByRole('button', { name: 'hero-banner.jpg' }), {
@@ -1049,7 +1109,7 @@ describe('FileBrowser', () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 
-		render(<FileBrowser adapter={adapter} />)
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
 		await user.pointer({
@@ -1126,7 +1186,7 @@ describe('FileBrowser', () => {
 
 		render(
 			<FileBrowserProvider manager={manager}>
-				<FileBrowser adapter={adapter} />
+				<FileBrowser initialView="grid" adapter={adapter} />
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
@@ -1157,7 +1217,7 @@ describe('FileBrowser', () => {
 
 		render(
 			<FileBrowserProvider manager={manager}>
-				<FileBrowser adapter={adapter} />
+				<FileBrowser initialView="grid" adapter={adapter} />
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
@@ -1195,7 +1255,7 @@ describe('FileBrowser', () => {
 
 		render(
 			<FileBrowserProvider manager={manager}>
-				<FileBrowser adapter={adapter} />
+				<FileBrowser initialView="grid" adapter={adapter} />
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
@@ -1217,7 +1277,7 @@ describe('FileBrowser', () => {
 
 		render(
 			<FileBrowserProvider manager={manager}>
-				<FileBrowser adapter={adapter} />
+				<FileBrowser initialView="grid" adapter={adapter} />
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
@@ -1309,6 +1369,7 @@ describe('FileBrowser', () => {
 		render(
 			<FileBrowser<FiveStarMetadata>
 				adapter={adapter}
+				initialView="grid"
 				renderDetailsContent={(item, defaultContent) => (
 					<>
 						{defaultContent}
@@ -1471,7 +1532,7 @@ describe('FileBrowser', () => {
 
 		render(
 			<FileBrowserProvider manager={manager}>
-				<FileBrowser adapter={adapter} uploadPolicy={{ maxFilesPerBatch: 1 }} />
+				<FileBrowser initialView="grid" adapter={adapter} uploadPolicy={{ maxFilesPerBatch: 1 }} />
 			</FileBrowserProvider>
 		)
 		await screen.findByText('hero-banner.jpg')
