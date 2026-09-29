@@ -659,6 +659,120 @@ describe('FileBrowser', () => {
 		await waitFor(() => expect(screen.getByRole('row', { name: /assets/ })).toHaveFocus())
 	})
 
+	test('expands folders inline in list view and still opens them on double-click', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		await adapter.createFolder?.('/assets/archive')
+		await adapter.upload('/assets/logo.png', textFile('logo.png'))
+		const onPathChange = vi.fn()
+
+		render(<FileBrowser adapter={adapter} onPathChange={onPathChange} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+
+		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
+		expect(await screen.findByRole('button', { name: 'logo.png' })).toBeInTheDocument()
+		expect(screen.getByRole('button', { name: 'Collapse assets' })).toHaveAttribute('aria-expanded', 'true')
+		expect(onPathChange).not.toHaveBeenCalled()
+
+		await user.click(screen.getByRole('button', { name: 'Expand archive' }))
+		expect(await screen.findByText('Empty folder')).toBeInTheDocument()
+
+		await user.click(screen.getByRole('button', { name: 'logo.png' }))
+		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('logo.png')
+
+		await user.click(screen.getByRole('button', { name: 'Collapse assets' }))
+		expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument()
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
+
+		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
+		await user.dblClick(await screen.findByRole('button', { name: 'archive' }))
+		expect(onPathChange).toHaveBeenCalledWith('/assets/archive', expect.objectContaining({ source: 'item' }))
+	})
+
+	test('expands and collapses list-view folders with arrow keys', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		await adapter.upload('/assets/logo.png', textFile('logo.png'))
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+
+		await user.keyboard('{ArrowDown}')
+		await user.keyboard('{ArrowRight}')
+		expect(await screen.findByRole('button', { name: 'logo.png' })).toBeInTheDocument()
+
+		await user.keyboard('{ArrowDown}')
+		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('logo.png')
+
+		await user.keyboard('{ArrowLeft}')
+		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('assets')
+
+		await user.keyboard('{ArrowLeft}')
+		expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument()
+	})
+
+	test('removes deleted nested items from an expanded list-view folder', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		await adapter.upload('/assets/logo.png', textFile('logo.png'))
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
+		await user.click(await screen.findByRole('button', { name: 'logo.png' }))
+
+		await user.keyboard('{Delete}')
+		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete selected' }))
+
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument())
+		expect((await adapter.list('/assets')).items).toHaveLength(0)
+		expect(screen.getByText('Empty folder')).toBeInTheDocument()
+	})
+
+	test('drops nested selections when switching back to grid view', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		await adapter.upload('/assets/logo.png', textFile('logo.png'))
+
+		render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
+		await user.click(await screen.findByRole('button', { name: 'logo.png' }))
+		await user.keyboard('{Meta>}')
+		await user.click(screen.getByRole('button', { name: 'hero-banner.jpg' }))
+		await user.keyboard('{/Meta}')
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('2 selected')
+
+		await user.click(screen.getByRole('button', { name: 'Grid view' }))
+
+		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('1 selected')
+		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
+	})
+
+	test('ignores dropping nested items onto their own parent folder', async () => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+		await adapter.upload('/assets/logo.png', textFile('logo.png'))
+		const move = vi.spyOn(adapter, 'move')
+		const dataTransfer = itemMoveDataTransfer()
+		const { container } = render(<FileBrowser adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+		await user.click(screen.getByRole('button', { name: 'List view' }))
+		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
+
+		fireEvent.dragStart(await screen.findByRole('button', { name: 'logo.png' }), { dataTransfer })
+		fireEvent.dragOver(screen.getByRole('button', { name: 'assets' }), { dataTransfer })
+		expect(container.querySelector('[data-fb-path="/assets"]')).not.toHaveAttribute('data-fb-drop-target')
+
+		fireEvent.drop(screen.getByRole('button', { name: 'assets' }), { dataTransfer })
+		expect(move).not.toHaveBeenCalled()
+		expect(screen.getByRole('button', { name: 'logo.png' })).toBeInTheDocument()
+	})
+
 	test('moves selected items through a destination picker', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()

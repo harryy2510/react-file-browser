@@ -26,6 +26,7 @@ import type { OnSelect } from 'react-selecto'
 import type { FileBrowserDensity } from '../theme'
 import { useFileBrowser } from '../core/use-file-browser'
 import type {
+	FileBrowserListRow,
 	FileBrowserPathChangeContext,
 	FileBrowserUploadConflictResolution,
 	FileBrowserView,
@@ -256,8 +257,8 @@ export function FileBrowser<TMetadata = unknown>({
 	const supportsBulkDownload = browser.capabilities.bulkDownload || allowClientZipFallback
 	const canDownloadSelection = canDownloadItems(browser.selectedItems, supportsBulkDownload)
 	const previewFiles = useMemo(
-		() => browser.filteredItems.filter((item) => item.kind === 'file'),
-		[browser.filteredItems]
+		() => browser.visibleItems.filter((item) => item.kind === 'file'),
+		[browser.visibleItems]
 	)
 	const openPreview = useCallback(
 		async (item: FileNode<TMetadata>) => {
@@ -304,7 +305,7 @@ export function FileBrowser<TMetadata = unknown>({
 				if (mobileSelection) {
 					browser.toggleSelection(path)
 				} else {
-					const item = browser.filteredItems.find((candidate) => candidate.path === path)
+					const item = browser.visibleItems.find((candidate) => candidate.path === path)
 					if (item?.kind === 'folder') void browser.open(item)
 					else if (item) void openPreview(item)
 				}
@@ -362,13 +363,29 @@ export function FileBrowser<TMetadata = unknown>({
 	)
 	const moveKeyboardSelection = useCallback(
 		(key: string, extendSelection: boolean) => {
-			const visibleItems = browser.filteredItems
+			const visibleItems = browser.visibleItems
 			if (visibleItems.length === 0) {
 				return
 			}
 
 			const currentPath = browser.focusedPath ?? browser.selectedPaths.at(-1)
 			const currentIndex = visibleItems.findIndex((item) => item.path === currentPath)
+			const currentRow = browser.listRows.find((row) => row.type === 'item' && row.item.path === currentPath)
+			// List view follows OS outline conventions: Right expands a folder, Left collapses it or jumps to its parent.
+			if (browser.view === 'list' && !extendSelection && currentRow?.type === 'item') {
+				if (key === 'ArrowRight' && currentRow.item.kind === 'folder' && !currentRow.expanded) {
+					browser.expandFolder(currentRow.item.path)
+					return
+				}
+				if (key === 'ArrowLeft' && currentRow.expanded) {
+					browser.collapseFolder(currentRow.item.path)
+					return
+				}
+				if (key === 'ArrowLeft' && currentRow.depth > 0) {
+					browser.selectOnly(getFileBrowserDirname(currentRow.item.path))
+					return
+				}
+			}
 			const fallbackIndex = key === 'ArrowUp' || key === 'ArrowLeft' || key === 'End' ? visibleItems.length - 1 : 0
 			const nextIndex =
 				currentIndex === -1 ? fallbackIndex : getNextKeyboardIndex(key, currentIndex, visibleItems.length)
@@ -535,7 +552,7 @@ export function FileBrowser<TMetadata = unknown>({
 			`[data-fb-path="${escapeAttributeSelector(browser.focusedPath)}"]`
 		)
 		item?.focus()
-	}, [browser.focusedPath, browser.filteredItems, browser.view])
+	}, [browser.focusedPath, browser.visibleItems, browser.view])
 
 	useEffect(() => {
 		if (!contextMenu) {
@@ -742,7 +759,11 @@ export function FileBrowser<TMetadata = unknown>({
 		}
 
 		const paths = getActiveDraggedPaths(event.dataTransfer)
-		if (paths.length === 0 || paths.some((path) => item.path === path || item.path.startsWith(`${path}/`))) {
+		if (
+			paths.length === 0 ||
+			paths.some((path) => item.path === path || item.path.startsWith(`${path}/`)) ||
+			paths.every((path) => getFileBrowserDirname(path) === item.path)
+		) {
 			return
 		}
 
@@ -759,7 +780,7 @@ export function FileBrowser<TMetadata = unknown>({
 		}
 
 		const paths = getActiveDraggedPaths(event.dataTransfer)
-		if (paths.length === 0) {
+		if (paths.every((path) => getFileBrowserDirname(path) === item.path)) {
 			return
 		}
 
@@ -2441,6 +2462,7 @@ function FileTable<TMetadata>({
 	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
 	rootLabel: string
 }) {
+	const disclosureSize = getDisclosureSize(narrow)
 	return (
 		<table
 			aria-label={rootLabel}
@@ -2464,103 +2486,183 @@ function FileTable<TMetadata>({
 				</tr>
 			</thead>
 			<tbody>
-				{browser.filteredItems.map((item) => (
-					<TouchRow
-						aria-selected={selectedPaths.includes(item.path)}
-						data-fb-drop-target={folderDropTargetPath === item.path ? 'true' : undefined}
-						data-fb-path={item.path}
-						className={
-							folderDropTargetPath === item.path
-								? `bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)] ${CONTROL_MOTION}`
-								: selectedPaths.includes(item.path)
-									? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
-									: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
-						}
-						draggable={canMove && !narrow}
-						onLongPress={() => onTouchMenu(item)}
-						key={item.path}
-						onClick={(event) => onSelectItem(item.path, event)}
-						onContextMenu={(event) => onContextMenu(item, event)}
-						onDragEnd={onDragEnd}
-						onDragOver={(event) => onFolderDragOver(item, event)}
-						onDragStart={(event) => onDragStart(item, event)}
-						onDrop={(event) => onFolderDrop(item, event)}
-						onDoubleClick={() => onOpenItem(item)}
-						tabIndex={0}
-					>
-						<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)]">
-							<div className="flex min-w-0 items-start gap-2">
-								{selectionMode ? (
-									<button
-										aria-label={`Select ${item.name}`}
-										aria-pressed={selectedPaths.includes(item.path)}
-										className="grid size-[calc(var(--fb-gap)*11)] shrink-0 place-items-center text-[var(--fb-accent)]"
-										data-fb-touch-control
-										onClick={(event) => {
-											event.stopPropagation()
-											onToggleItem(item.path)
-										}}
-										type="button"
-									>
-										{selectedPaths.includes(item.path) ? (
-											<CheckSquare aria-hidden="true" className="size-5" />
-										) : (
-											<Square aria-hidden="true" className="size-5" />
-										)}
-									</button>
-								) : null}
-								{item.kind === 'folder' ? (
-									<Folder className="mt-0.5 size-4 shrink-0 text-[var(--fb-folder)]" />
-								) : (
-									<File className="mt-0.5 size-4 shrink-0 text-[var(--fb-muted)]" />
-								)}
-								<div className="min-w-0 flex-1">
-									{inlineRenameItem?.path === item.path ? (
-										<InlineRenameInput
-											item={item}
-											error={inlineRenameError}
-											label={inlineRenameLabel}
-											onCancel={onInlineRenameCancel}
-											onChange={onInlineRenameChange}
-											onCommit={onInlineRenameCommit}
-											value={inlineRenameValue}
-										/>
-									) : (
+				{browser.listRows.map((row) => {
+					if (row.type === 'status') {
+						return <FolderStatusRow browser={browser} key={`${row.parentPath}::status`} narrow={narrow} row={row} />
+					}
+					const { item, depth, expanded } = row
+					return (
+						<TouchRow
+							aria-selected={selectedPaths.includes(item.path)}
+							data-fb-drop-target={folderDropTargetPath === item.path ? 'true' : undefined}
+							data-fb-path={item.path}
+							className={
+								folderDropTargetPath === item.path
+									? `bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)] ${CONTROL_MOTION}`
+									: selectedPaths.includes(item.path)
+										? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+										: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
+							}
+							draggable={canMove && !narrow}
+							onLongPress={() => onTouchMenu(item)}
+							key={item.path}
+							onClick={(event) => onSelectItem(item.path, event)}
+							onContextMenu={(event) => onContextMenu(item, event)}
+							onDragEnd={onDragEnd}
+							onDragOver={(event) => onFolderDragOver(item, event)}
+							onDragStart={(event) => onDragStart(item, event)}
+							onDrop={(event) => onFolderDrop(item, event)}
+							onDoubleClick={() => onOpenItem(item)}
+							tabIndex={0}
+						>
+							<td
+								className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)]"
+								style={depth > 0 ? { paddingInlineStart: treeIndent(depth) } : undefined}
+							>
+								<div className="flex min-w-0 items-start gap-2">
+									{selectionMode ? (
 										<button
-											className={`block max-w-full truncate text-left font-medium [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*11)]' : ''} ${CONTROL_MOTION}`}
+											aria-label={`Select ${item.name}`}
+											aria-pressed={selectedPaths.includes(item.path)}
+											className="grid size-[calc(var(--fb-gap)*11)] shrink-0 place-items-center text-[var(--fb-accent)]"
+											data-fb-touch-control
 											onClick={(event) => {
 												event.stopPropagation()
-												onSelectItem(item.path, event)
+												onToggleItem(item.path)
 											}}
 											type="button"
 										>
-											{item.name}
+											{selectedPaths.includes(item.path) ? (
+												<CheckSquare aria-hidden="true" className="size-5" />
+											) : (
+												<Square aria-hidden="true" className="size-5" />
+											)}
 										</button>
-									)}
-									<ItemMeta item={item} renderItemMeta={renderItemMeta} view="list" />
-									{narrow ? (
-										<div className="mt-[var(--fb-gap)] flex flex-wrap gap-x-[calc(var(--fb-gap)*3)] text-[11px] text-[var(--fb-muted)]">
-											<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
-											{item.modifiedAt ? <span>{new Date(item.modifiedAt).toLocaleDateString()}</span> : null}
-										</div>
 									) : null}
+									{item.kind === 'folder' ? (
+										<button
+											aria-expanded={expanded}
+											aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.name}`}
+											className={`grid shrink-0 place-items-center rounded-[var(--fb-radius)] text-[var(--fb-muted)] hover:bg-[var(--fb-border)] hover:text-[var(--fb-text)] ${disclosureSize} ${CONTROL_MOTION}`}
+											data-fb-touch-control
+											onClick={(event) => {
+												event.stopPropagation()
+												browser.toggleFolder(item.path)
+											}}
+											onDoubleClick={(event) => event.stopPropagation()}
+											type="button"
+										>
+											<ChevronRight
+												aria-hidden="true"
+												className={`size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none ${expanded ? 'rotate-90' : ''}`}
+											/>
+										</button>
+									) : (
+										<span aria-hidden="true" className={`shrink-0 ${disclosureSize}`} />
+									)}
+									{item.kind === 'folder' ? (
+										<Folder className="mt-0.5 size-4 shrink-0 text-[var(--fb-folder)]" />
+									) : (
+										<File className="mt-0.5 size-4 shrink-0 text-[var(--fb-muted)]" />
+									)}
+									<div className="min-w-0 flex-1">
+										{inlineRenameItem?.path === item.path ? (
+											<InlineRenameInput
+												item={item}
+												error={inlineRenameError}
+												label={inlineRenameLabel}
+												onCancel={onInlineRenameCancel}
+												onChange={onInlineRenameChange}
+												onCommit={onInlineRenameCommit}
+												value={inlineRenameValue}
+											/>
+										) : (
+											<button
+												className={`block max-w-full truncate text-left font-medium [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*11)]' : ''} ${CONTROL_MOTION}`}
+												onClick={(event) => {
+													event.stopPropagation()
+													onSelectItem(item.path, event)
+												}}
+												type="button"
+											>
+												{item.name}
+											</button>
+										)}
+										<ItemMeta item={item} renderItemMeta={renderItemMeta} view="list" />
+										{narrow ? (
+											<div className="mt-[var(--fb-gap)] flex flex-wrap gap-x-[calc(var(--fb-gap)*3)] text-[11px] text-[var(--fb-muted)]">
+												<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
+												{item.modifiedAt ? <span>{new Date(item.modifiedAt).toLocaleDateString()}</span> : null}
+											</div>
+										) : null}
+									</div>
 								</div>
-							</div>
-						</td>
-						{!narrow ? (
-							<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
-								{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
 							</td>
-						) : null}
-						{!narrow ? (
-							<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
-								{item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString() : '—'}
-							</td>
-						) : null}
-					</TouchRow>
-				))}
+							{!narrow ? (
+								<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
+									{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
+								</td>
+							) : null}
+							{!narrow ? (
+								<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
+									{item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString() : '—'}
+								</td>
+							) : null}
+						</TouchRow>
+					)
+				})}
 			</tbody>
 		</table>
+	)
+}
+
+function treeIndent(depth: number) {
+	return `calc(var(--fb-cell-x) + var(--fb-gap) * ${depth * 5})`
+}
+
+function getDisclosureSize(narrow: boolean) {
+	return `size-5 [@media(pointer:coarse)]:size-[calc(var(--fb-gap)*11)] ${narrow ? 'size-[calc(var(--fb-gap)*11)]' : ''}`
+}
+
+function FolderStatusRow<TMetadata>({
+	browser,
+	narrow,
+	row
+}: {
+	browser: BrowserLike<TMetadata>
+	narrow: boolean
+	row: Extract<FileBrowserListRow<TMetadata>, { type: 'status' }>
+}) {
+	const linkButton = `rounded-[var(--fb-radius)] font-medium text-[var(--fb-accent)] hover:underline ${CONTROL_MOTION}`
+	return (
+		<tr data-fb-status-for={row.parentPath}>
+			<td
+				className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]"
+				colSpan={narrow ? 1 : 3}
+				style={{ paddingInlineStart: treeIndent(row.depth) }}
+			>
+				<div className="flex min-w-0 items-center gap-2">
+					{/* Same width as the item-row chevron so the status lines up with the child icons. */}
+					<span aria-hidden="true" className={`shrink-0 ${getDisclosureSize(narrow)}`} />
+					{row.status === 'loading' ? (
+						<span role="status">Loading…</span>
+					) : row.status === 'empty' ? (
+						<span>Empty folder</span>
+					) : row.status === 'more' ? (
+						<button className={linkButton} onClick={() => browser.loadMoreFolder(row.parentPath)} type="button">
+							Load more
+						</button>
+					) : (
+						<span className="text-[var(--fb-danger)]">
+							{row.error?.message ?? 'Could not load folder'}{' '}
+							<button className={linkButton} onClick={() => browser.expandFolder(row.parentPath)} type="button">
+								Retry
+							</button>
+						</span>
+					)}
+				</div>
+			</td>
+		</tr>
 	)
 }
 

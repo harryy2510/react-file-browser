@@ -2,9 +2,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { FileBrowserAdapterError, FileBrowserBulkActionError } from './types'
 import type { FileBrowserAdapter, FileNode } from './types'
-import { joinFileBrowserPath, normalizeFileBrowserPath } from './path'
+import {
+	getFileBrowserDirname,
+	isFileBrowserDescendantOrSelf,
+	joinFileBrowserPath,
+	normalizeFileBrowserPath
+} from './path'
 
 export type FileBrowserStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type FileBrowserFolderChildren<TMetadata = unknown> = {
+	status: 'loading' | 'ready' | 'error'
+	items: FileNode<TMetadata>[]
+	cursor?: string
+	error: Error | null
+}
+/** A flattened list-view row: an item at some nesting depth, or a status line for an expanded folder. */
+export type FileBrowserListRow<TMetadata = unknown> =
+	| { type: 'item'; item: FileNode<TMetadata>; depth: number; expanded: boolean }
+	| {
+			type: 'status'
+			parentPath: string
+			depth: number
+			status: 'loading' | 'empty' | 'error' | 'more'
+			error: Error | null
+	  }
 export type FileBrowserView = 'grid' | 'list'
 export type FileBrowserKindFilter = 'all' | 'files' | 'folders'
 export type FileBrowserUploadConflictResolution = 'replace' | 'keep-both' | 'skip'
@@ -62,6 +83,11 @@ export type UseFileBrowserResult<TMetadata = unknown> = {
 	sortBy: 'name' | 'modifiedAt' | 'size'
 	sortDirection: 'asc' | 'desc'
 	filteredItems: FileNode<TMetadata>[]
+	/** List view rows with expanded folders' children inlined. */
+	listRows: FileBrowserListRow<TMetadata>[]
+	/** Items in on-screen order: `filteredItems` in grid view, every item row of `listRows` in list view. */
+	visibleItems: FileNode<TMetadata>[]
+	expandedPaths: string[]
 	setView: Dispatch<SetStateAction<FileBrowserView>>
 	setSearchQuery: Dispatch<SetStateAction<string>>
 	setFilterKind: Dispatch<SetStateAction<FileBrowserKindFilter>>
@@ -71,6 +97,10 @@ export type UseFileBrowserResult<TMetadata = unknown> = {
 	loadMore: () => Promise<void>
 	navigate: (path: string, context?: FileBrowserPathChangeContext<TMetadata>) => Promise<void>
 	open: (node: FileNode<TMetadata>) => Promise<void>
+	expandFolder: (path: string) => void
+	collapseFolder: (path: string) => void
+	toggleFolder: (path: string) => void
+	loadMoreFolder: (path: string) => void
 	selectOnly: (path: string) => void
 	toggleSelection: (path: string) => void
 	selectRange: (path: string) => void
@@ -109,12 +139,24 @@ export function useFileBrowser<TMetadata = unknown>({
 	const [focusedPath, setFocusedPath] = useState<string | null>(null)
 	const [rangeAnchor, setRangeAnchor] = useState<string | null>(null)
 	const [clipboard, setClipboard] = useState<FileBrowserClipboard>(null)
-	const [view, setView] = useState<FileBrowserView>('grid')
+	const [view, setViewState] = useState<FileBrowserView>('grid')
+	const viewRef = useRef(view)
+	viewRef.current = view
 	const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = useState(initialSearchQuery)
 	const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery
 	const [filterKind, setFilterKind] = useState<FileBrowserKindFilter>('all')
 	const [sortBy, setSortBy] = useState<'name' | 'modifiedAt' | 'size'>('name')
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+	const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+	const [folderChildren, setFolderChildren] = useState<Map<string, FileBrowserFolderChildren<TMetadata>>>(
+		() => new Map()
+	)
+	const expandedRef = useRef(expanded)
+	expandedRef.current = expanded
+	const folderChildrenRef = useRef(folderChildren)
+	folderChildrenRef.current = folderChildren
+	const folderRequestCounterRef = useRef(0)
+	const folderRequestIdsRef = useRef(new Map<string, number>())
 	const requestIdRef = useRef(0)
 	const currentPathRef = useRef(currentPath)
 	const cursorRef = useRef<string | undefined>(undefined)
@@ -132,6 +174,21 @@ export function useFileBrowser<TMetadata = unknown>({
 		},
 		[controlledSearchQuery, onSearchQueryChange]
 	)
+
+	const setView = useCallback<Dispatch<SetStateAction<FileBrowserView>>>((nextView) => {
+		const resolved = typeof nextView === 'function' ? nextView(viewRef.current) : nextView
+		viewRef.current = resolved
+		setViewState(resolved)
+		if (resolved !== 'grid') return
+		// Grid shows only the current folder, so selections made inside expanded list-view folders would be hidden.
+		const isNested = (path: string | null) => path !== null && getFileBrowserDirname(path) !== currentPathRef.current
+		setSelected((current) => {
+			const next = new Set(Array.from(current).filter((path) => !isNested(path)))
+			return next.size === current.size ? current : next
+		})
+		setFocusedPath((current) => (isNested(current) ? null : current))
+		setRangeAnchor((current) => (isNested(current) ? null : current))
+	}, [])
 
 	const capabilities = useMemo<FileBrowserCapabilities>(
 		() => ({
@@ -151,15 +208,167 @@ export function useFileBrowser<TMetadata = unknown>({
 	)
 
 	const selectedPaths = useMemo(() => sortPaths(Array.from(selected)), [selected])
-	const selectedItems = useMemo(() => items.filter((item) => selected.has(item.path)), [items, selected])
+	const selectedItems = useMemo(() => {
+		const nodes = new Map(items.map((item) => [item.path, item]))
+		for (const entry of folderChildren.values()) {
+			for (const item of entry.items) {
+				if (!nodes.has(item.path)) nodes.set(item.path, item)
+			}
+		}
+		return Array.from(nodes.values()).filter((item) => selected.has(item.path))
+	}, [folderChildren, items, selected])
 
-	const filteredItems = useMemo(() => {
-		const query = searchQuery.trim().toLowerCase()
-		return [...items]
-			.filter((item) => (query ? item.name.toLowerCase().includes(query) : true))
-			.filter((item) => (filterKind === 'all' ? true : item.kind === (filterKind === 'files' ? 'file' : 'folder')))
-			.sort((left, right) => compareNodes(left, right, sortBy, sortDirection))
-	}, [filterKind, items, searchQuery, sortBy, sortDirection])
+	const filteredItems = useMemo(
+		() => filterAndSortNodes(items, searchQuery, filterKind, sortBy, sortDirection),
+		[filterKind, items, searchQuery, sortBy, sortDirection]
+	)
+
+	const listRows = useMemo(() => {
+		const rows: FileBrowserListRow<TMetadata>[] = []
+		const visit = (nodes: FileNode<TMetadata>[], depth: number) => {
+			for (const item of nodes) {
+				const isExpanded = item.kind === 'folder' && expanded.has(item.path)
+				rows.push({ type: 'item', item, depth, expanded: isExpanded })
+				if (!isExpanded) continue
+
+				const entry = folderChildren.get(item.path)
+				// Search narrows the current folder only; expanded children stay complete, like an OS outline view.
+				const children = entry ? filterAndSortNodes(entry.items, '', filterKind, sortBy, sortDirection) : []
+				visit(children, depth + 1)
+				const status = getFolderRowStatus(entry, children.length)
+				if (status) {
+					rows.push({ type: 'status', parentPath: item.path, depth: depth + 1, status, error: entry?.error ?? null })
+				}
+			}
+		}
+		visit(filteredItems, 0)
+		return rows
+	}, [expanded, filterKind, filteredItems, folderChildren, sortBy, sortDirection])
+
+	const visibleItems = useMemo(
+		() => (view === 'list' ? listRows.flatMap((row) => (row.type === 'item' ? [row.item] : [])) : filteredItems),
+		[filteredItems, listRows, view]
+	)
+	const expandedPaths = useMemo(() => sortPaths(Array.from(expanded)), [expanded])
+
+	const loadFolder = useCallback(
+		async (folderPath: string, mode: 'replace' | 'append') => {
+			const requestId = ++folderRequestCounterRef.current
+			folderRequestIdsRef.current.set(folderPath, requestId)
+			const cursor = mode === 'append' ? folderChildrenRef.current.get(folderPath)?.cursor : undefined
+			setFolderChildren((current) =>
+				withFolderChildren(current, folderPath, {
+					items: current.get(folderPath)?.items ?? [],
+					cursor: current.get(folderPath)?.cursor,
+					status: 'loading',
+					error: null
+				})
+			)
+
+			try {
+				const result = await adapter.list(folderPath, { cursor })
+				if (folderRequestIdsRef.current.get(folderPath) !== requestId) {
+					return
+				}
+				setFolderChildren((current) =>
+					withFolderChildren(current, folderPath, {
+						items: mode === 'append' ? mergeItems(current.get(folderPath)?.items ?? [], result.items) : result.items,
+						cursor: result.cursor,
+						status: 'ready',
+						error: null
+					})
+				)
+			} catch (caught) {
+				if (folderRequestIdsRef.current.get(folderPath) !== requestId) {
+					return
+				}
+				setFolderChildren((current) =>
+					withFolderChildren(current, folderPath, {
+						items: current.get(folderPath)?.items ?? [],
+						cursor: current.get(folderPath)?.cursor,
+						status: 'error',
+						error: toError(caught)
+					})
+				)
+			}
+		},
+		[adapter]
+	)
+
+	const reloadExpandedFolders = useCallback(
+		async (paths: Iterable<string> = expandedRef.current) => {
+			const targets = Array.from(paths).filter((path) => expandedRef.current.has(path))
+			await Promise.all(targets.map((path) => loadFolder(path, 'replace')))
+		},
+		[loadFolder]
+	)
+
+	const resetTree = useCallback(() => {
+		folderRequestIdsRef.current.clear()
+		setExpanded(new Set())
+		setFolderChildren(new Map())
+	}, [])
+
+	const pruneTree = useCallback((paths: string[]) => {
+		for (const folderPath of Array.from(folderRequestIdsRef.current.keys())) {
+			if (paths.some((path) => isFileBrowserDescendantOrSelf(path, folderPath))) {
+				folderRequestIdsRef.current.delete(folderPath)
+			}
+		}
+		setExpanded((current) => pruneExpandedPaths(current, paths))
+		setFolderChildren((current) => pruneFolderChildren(current, paths))
+	}, [])
+
+	const expandFolder = useCallback(
+		(folderPath: string) => {
+			const normalized = normalizeFileBrowserPath(folderPath)
+			setExpanded((current) => (current.has(normalized) ? current : new Set(current).add(normalized)))
+			void loadFolder(normalized, 'replace')
+		},
+		[loadFolder]
+	)
+
+	const collapseFolder = useCallback((folderPath: string) => {
+		const normalized = normalizeFileBrowserPath(folderPath)
+		const isHidden = (path: string | null) =>
+			path !== null && path !== normalized && isFileBrowserDescendantOrSelf(normalized, path)
+		setExpanded((current) => {
+			if (!current.has(normalized)) return current
+			const next = new Set(current)
+			next.delete(normalized)
+			return next
+		})
+		// Hidden rows must not stay selected, or keyboard delete/move would act on items the user cannot see.
+		setSelected((current) => {
+			const next = new Set(Array.from(current).filter((path) => !isHidden(path)))
+			return next.size === current.size ? current : next
+		})
+		setFocusedPath((current) => (isHidden(current) ? normalized : current))
+		setRangeAnchor((current) => (isHidden(current) ? null : current))
+	}, [])
+
+	const toggleFolder = useCallback(
+		(folderPath: string) => {
+			if (expandedRef.current.has(normalizeFileBrowserPath(folderPath))) {
+				collapseFolder(folderPath)
+			} else {
+				expandFolder(folderPath)
+			}
+		},
+		[collapseFolder, expandFolder]
+	)
+
+	const loadMoreFolder = useCallback(
+		(folderPath: string) => {
+			const normalized = normalizeFileBrowserPath(folderPath)
+			const entry = folderChildrenRef.current.get(normalized)
+			if (!entry?.cursor || entry.status === 'loading') {
+				return
+			}
+			void loadFolder(normalized, 'append')
+		},
+		[loadFolder]
+	)
 
 	const loadPath = useCallback(
 		async (path: string, mode: 'replace' | 'append') => {
@@ -195,8 +404,8 @@ export function useFileBrowser<TMetadata = unknown>({
 	)
 
 	const refresh = useCallback(async () => {
-		await loadPath(currentPath, 'replace')
-	}, [currentPath, loadPath])
+		await Promise.all([loadPath(currentPath, 'replace'), reloadExpandedFolders()])
+	}, [currentPath, loadPath, reloadExpandedFolders])
 
 	const navigate = useCallback(
 		async (nextPath: string, context: FileBrowserPathChangeContext<TMetadata> = { source: 'programmatic' }) => {
@@ -215,11 +424,12 @@ export function useFileBrowser<TMetadata = unknown>({
 			setSelected(new Set())
 			setFocusedPath(null)
 			setRangeAnchor(null)
+			resetTree()
 			cursorRef.current = undefined
 			setCursor(undefined)
 			await loadPath(normalized, 'replace')
 		},
-		[controlledPath, loadPath, onPathChange]
+		[controlledPath, loadPath, onPathChange, resetTree]
 	)
 
 	const loadMore = useCallback(async () => {
@@ -238,6 +448,7 @@ export function useFileBrowser<TMetadata = unknown>({
 			setFocusedPath(null)
 			setRangeAnchor(null)
 		}
+		resetTree()
 		cursorRef.current = undefined
 		setCursor(undefined)
 		void Promise.resolve().then(() => loadPath(nextPath, 'replace'))
@@ -271,7 +482,7 @@ export function useFileBrowser<TMetadata = unknown>({
 		(path: string) => {
 			const normalized = normalizeFileBrowserPath(path)
 			const anchor = rangeAnchor ?? focusedPath ?? normalized
-			const visiblePaths = filteredItems.map((item) => item.path)
+			const visiblePaths = visibleItems.map((item) => item.path)
 			const anchorIndex = visiblePaths.indexOf(anchor)
 			const targetIndex = visiblePaths.indexOf(normalized)
 
@@ -285,7 +496,7 @@ export function useFileBrowser<TMetadata = unknown>({
 			setSelected(new Set(visiblePaths.slice(start, end + 1)))
 			setFocusedPath(normalized)
 		},
-		[filteredItems, focusedPath, rangeAnchor, selectOnly]
+		[focusedPath, rangeAnchor, selectOnly, visibleItems]
 	)
 
 	const setSelection = useCallback((paths: string[], options: { additive?: boolean } = {}) => {
@@ -302,10 +513,14 @@ export function useFileBrowser<TMetadata = unknown>({
 	}, [])
 
 	const selectAllLoaded = useCallback(() => {
-		setSelected(new Set(items.map((item) => item.path)))
+		const paths = new Set(items.map((item) => item.path))
+		if (view === 'list') {
+			for (const item of visibleItems) paths.add(item.path)
+		}
+		setSelected(paths)
 		setFocusedPath(items.at(0)?.path ?? null)
 		setRangeAnchor(items.at(0)?.path ?? null)
-	}, [items])
+	}, [items, view, visibleItems])
 
 	const clearSelection = useCallback(() => {
 		setSelected(new Set())
@@ -358,16 +573,22 @@ export function useFileBrowser<TMetadata = unknown>({
 
 			const normalized = normalizeFileBrowserPath(path)
 			const previous = items
-			setItems((current) =>
-				current.map((item) => (item.path === normalized ? { ...item, name: newName.trim() } : item))
-			)
+			const previousChildren = folderChildrenRef.current
+			const replace = (next: (item: FileNode<TMetadata>) => FileNode<TMetadata>) => {
+				const update = (nodes: FileNode<TMetadata>[]) =>
+					nodes.map((item) => (item.path === normalized ? next(item) : item))
+				setItems(update)
+				setFolderChildren((current) => mapFolderChildItems(current, update))
+			}
+			replace((item) => ({ ...item, name: newName.trim() }))
 
 			try {
 				const renamed = await adapter.rename(normalized, newName.trim())
-				setItems((current) => current.map((item) => (item.path === normalized ? renamed : item)))
+				replace(() => renamed)
 				return renamed
 			} catch (caught) {
 				setItems(previous)
+				setFolderChildren(previousChildren)
 				throw caught
 			}
 		},
@@ -379,8 +600,11 @@ export function useFileBrowser<TMetadata = unknown>({
 			const normalizedPaths = paths.map(normalizeFileBrowserPath)
 			const previousItems = items
 			const previousSelected = selected
+			const previousExpanded = expandedRef.current
+			const previousChildren = folderChildrenRef.current
 
 			setItems((current) => removePaths(current, normalizedPaths))
+			pruneTree(normalizedPaths)
 			setSelected((current) => {
 				const next = new Set(current)
 				for (const path of normalizedPaths) {
@@ -396,17 +620,21 @@ export function useFileBrowser<TMetadata = unknown>({
 					const succeededPaths = caught.succeededPaths.map(normalizeFileBrowserPath)
 					const failedPaths = caught.failures.map((failure) => normalizeFileBrowserPath(failure.path))
 					setItems(removePaths(previousItems, succeededPaths))
+					setExpanded(pruneExpandedPaths(previousExpanded, succeededPaths))
+					setFolderChildren(pruneFolderChildren(previousChildren, succeededPaths))
 					setSelected(new Set(failedPaths))
 					setFocusedPath(failedPaths.at(0) ?? null)
 					setRangeAnchor(failedPaths.at(0) ?? null)
 					throw caught
 				}
 				setItems(previousItems)
+				setExpanded(previousExpanded)
+				setFolderChildren(previousChildren)
 				setSelected(previousSelected)
 				throw caught
 			}
 		},
-		[adapter, items, selected]
+		[adapter, items, pruneTree, selected]
 	)
 
 	const deleteSelected = useCallback(async () => {
@@ -431,10 +659,12 @@ export function useFileBrowser<TMetadata = unknown>({
 				if (caught instanceof FileBrowserBulkActionError) {
 					const succeededPaths = caught.succeededPaths.map(normalizeFileBrowserPath)
 					const failedPaths = caught.failures.map((failure) => normalizeFileBrowserPath(failure.path))
+					pruneTree(succeededPaths)
 					if (destination === currentPath) {
 						await refresh()
 					} else {
 						setItems((current) => removePaths(current, succeededPaths))
+						await reloadExpandedFolders([destination])
 					}
 					setSelected(new Set(failedPaths))
 					setFocusedPath(failedPaths.at(0) ?? null)
@@ -452,14 +682,16 @@ export function useFileBrowser<TMetadata = unknown>({
 			})
 			setFocusedPath(null)
 			setRangeAnchor(null)
+			pruneTree(normalizedPaths)
 
 			if (destination === currentPath) {
 				await refresh()
 			} else {
 				setItems((current) => removePaths(current, normalizedPaths))
+				await reloadExpandedFolders([destination])
 			}
 		},
-		[adapter, currentPath, refresh]
+		[adapter, currentPath, pruneTree, refresh, reloadExpandedFolders]
 	)
 
 	const moveSelectedTo = useCallback(
@@ -507,9 +739,11 @@ export function useFileBrowser<TMetadata = unknown>({
 
 			if (destination === currentPath) {
 				await refresh()
+			} else {
+				await reloadExpandedFolders([destination])
 			}
 		},
-		[adapter, clipboard, currentPath, movePathsTo, refresh]
+		[adapter, clipboard, currentPath, movePathsTo, refresh, reloadExpandedFolders]
 	)
 
 	const uploadFiles = useCallback(
@@ -553,6 +787,9 @@ export function useFileBrowser<TMetadata = unknown>({
 		sortBy,
 		sortDirection,
 		filteredItems,
+		listRows,
+		visibleItems,
+		expandedPaths,
 		setView,
 		setSearchQuery,
 		setFilterKind,
@@ -562,6 +799,10 @@ export function useFileBrowser<TMetadata = unknown>({
 		loadMore,
 		navigate,
 		open,
+		expandFolder,
+		collapseFolder,
+		toggleFolder,
+		loadMoreFolder,
 		selectOnly,
 		toggleSelection,
 		selectRange,
@@ -592,6 +833,68 @@ function mergeItems<TMetadata>(current: FileNode<TMetadata>[], incoming: FileNod
 function removePaths<TMetadata>(items: FileNode<TMetadata>[], paths: string[]): FileNode<TMetadata>[] {
 	const remove = new Set(paths)
 	return items.filter((item) => !remove.has(item.path))
+}
+
+function filterAndSortNodes<TMetadata>(
+	items: FileNode<TMetadata>[],
+	searchQuery: string,
+	filterKind: FileBrowserKindFilter,
+	sortBy: 'name' | 'modifiedAt' | 'size',
+	sortDirection: 'asc' | 'desc'
+): FileNode<TMetadata>[] {
+	const query = searchQuery.trim().toLowerCase()
+	return items
+		.filter((item) => (query ? item.name.toLowerCase().includes(query) : true))
+		.filter((item) => (filterKind === 'all' ? true : item.kind === (filterKind === 'files' ? 'file' : 'folder')))
+		.sort((left, right) => compareNodes(left, right, sortBy, sortDirection))
+}
+
+function getFolderRowStatus<TMetadata>(
+	entry: FileBrowserFolderChildren<TMetadata> | undefined,
+	visibleChildCount: number
+): Extract<FileBrowserListRow, { type: 'status' }>['status'] | null {
+	if (!entry || (entry.status === 'loading' && (visibleChildCount === 0 || entry.cursor))) return 'loading'
+	if (entry.status === 'error') return 'error'
+	if (entry.cursor) return 'more'
+	return visibleChildCount === 0 ? 'empty' : null
+}
+
+function withFolderChildren<TMetadata>(
+	current: Map<string, FileBrowserFolderChildren<TMetadata>>,
+	folderPath: string,
+	entry: FileBrowserFolderChildren<TMetadata>
+): Map<string, FileBrowserFolderChildren<TMetadata>> {
+	return new Map(current).set(folderPath, entry)
+}
+
+function mapFolderChildItems<TMetadata>(
+	current: Map<string, FileBrowserFolderChildren<TMetadata>>,
+	update: (items: FileNode<TMetadata>[]) => FileNode<TMetadata>[]
+): Map<string, FileBrowserFolderChildren<TMetadata>> {
+	const next = new Map<string, FileBrowserFolderChildren<TMetadata>>()
+	for (const [folderPath, entry] of current) {
+		next.set(folderPath, { ...entry, items: update(entry.items) })
+	}
+	return next
+}
+
+function pruneFolderChildren<TMetadata>(
+	current: Map<string, FileBrowserFolderChildren<TMetadata>>,
+	paths: string[]
+): Map<string, FileBrowserFolderChildren<TMetadata>> {
+	const next = new Map<string, FileBrowserFolderChildren<TMetadata>>()
+	for (const [folderPath, entry] of current) {
+		if (paths.some((path) => isFileBrowserDescendantOrSelf(path, folderPath))) continue
+		next.set(folderPath, { ...entry, items: removePaths(entry.items, paths) })
+	}
+	return next
+}
+
+function pruneExpandedPaths(current: Set<string>, paths: string[]): Set<string> {
+	const next = new Set(
+		Array.from(current).filter((folderPath) => !paths.some((path) => isFileBrowserDescendantOrSelf(path, folderPath)))
+	)
+	return next.size === current.size ? current : next
 }
 
 function compareNodes<TMetadata>(

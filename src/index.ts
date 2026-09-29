@@ -25,7 +25,9 @@ export {
 	useFileBrowser,
 	type FileBrowserCapabilities,
 	type FileBrowserClipboard,
+	type FileBrowserFolderChildren,
 	type FileBrowserKindFilter,
+	type FileBrowserListRow,
 	type FileBrowserPathChangeContext,
 	type FileBrowserStatus,
 	type FileBrowserUploadConflictResolution,
@@ -35,7 +37,6 @@ export {
 	type UseFileBrowserResult
 } from './core/use-file-browser'
 export { FileBrowser, type FileBrowserProps } from './components/file-browser'
-export { FileTree, type FileTreeProps } from './components/file-tree'
 export type { FileBrowserUploadPolicy, FileBrowserUploadRejection } from './components/file-browser'
 export {
 	FileBrowserProvider,

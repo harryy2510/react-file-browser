@@ -238,39 +238,6 @@ or `bulkDownloadUrl`, those controls are hidden. Recursive folder drops are reje
 | `renderDetailsContent` | `(item, defaultContent) => ReactNode` | None | Extends single-item details. |
 | `className` | `string` | None | Class name merged onto the root browser surface. |
 
-### `<FileTree>` props
-
-A compact, lazily loaded tree of the same adapter, for navigation beside an editor or preview (for
-example a memory or notes panel). It reads every page of a folder the first time it opens, sorts
-folders first, and follows the WAI-ARIA tree keyboard pattern. Actions are capability-gated like the
-browser: Upload (a full adapter), New folder (`createFolder`), Rename (`rename`, also F2), Delete
-(`delete`, confirmed in place) and Download (`signedUrl`) show only when the adapter has that method.
-They open from a row's `…` button, right-click, or Shift+F10; the root gets Upload and New folder
-buttons. Files can also be dropped on a folder or the tree. Uploads run through the
-`FileBrowserProvider` transfer queue (progress, pause, resume), and the tree refreshes a loaded folder
-when an upload into it finishes.
-
-```tsx
-import { FileTree } from "@harryy/react-file-browser";
-
-<FileTree adapter={adapter} rootLabel="Memory" selectedPath={path} onSelect={(node) => setPath(node.path)} />
-```
-
-| Prop | Type | Default | Description |
-| --- | --- | --- | --- |
-| `adapter` | `list` plus any of `createFolder`, `rename`, `delete`, `signedUrl`, or a full `FileBrowserAdapter` for Upload | — | Where folders are listed from; the optional methods turn on their actions. |
-| `readOnly` | `boolean` | `false` | Hides every action that changes storage. |
-| `rootPath` | `string` | `/` | The folder whose contents are the top level. |
-| `rootLabel` | `string` | `Files` | Accessible name of the tree. |
-| `selectedPath` | `string` | — | Controlled selection. |
-| `onSelect` | `(node) => void` | — | A file or folder was chosen (click, Enter, Space). Folders also toggle. |
-| `defaultExpandedPaths` | `string[]` | `[]` | Folders open on first render. |
-| `renderItemMeta` | `(node) => ReactNode` | — | Content at the end of a row. |
-| `emptyState` | `ReactNode` | `No files` | Shown when the root is empty. |
-| `onDeleted` | `(node) => void` | — | A file or folder was deleted, so the host can clear it if selected. |
-| `density` | `'comfortable' \| 'compact'` | `comfortable` | Row height through `--fb-control-h`. |
-| `className` | `string` | — | Merged onto the tree's outer element. |
-
 ### `<FileBrowserProvider>` props
 
 | Prop | Type | Default | Description |
@@ -299,6 +266,11 @@ own UI. The `FileBrowser` component is a consumer of this hook.
 
 It also accepts controlled `path`, `searchQuery`, and their change callbacks. `navigate(path)` emits a
 `programmatic` path-change source, while `open(folder)` emits the complete target item.
+
+For tree-style list views, `listRows` flattens expanded folders into `{ type: 'item', item, depth,
+expanded }` and `{ type: 'status', parentPath, depth, status }` rows. Drive expansion with
+`expandFolder`, `collapseFolder`, `toggleFolder`, and `loadMoreFolder`. `visibleItems` lists items in
+on-screen order for the active view and backs range selection and keyboard movement.
 
 ### Entry points
 
@@ -345,6 +317,12 @@ documents every token and its default.
 - Move-capable adapters enable the destination tree picker, Cut/Paste, and drag onto folders.
 - Keyboard shortcuts include Enter preview/open, F2 rename, Delete confirm, Cmd/Ctrl+A selection, and
   Cmd/Ctrl+C/X/V for adapter-gated copy, cut, and paste.
+- List view doubles as a tree, like an OS outline view: the chevron (or Right arrow) expands a folder
+  inline, Left arrow collapses it or jumps to the parent, and double-click or Enter still opens the
+  folder. Children load lazily through `adapter.list` with per-folder "Load more" pagination. Nested
+  items support selection, preview, rename, delete, move, and paste like top-level items. Collapsing a
+  folder, switching to grid view, or navigating clears selections that would become hidden. Search
+  narrows the current folder only; the kind filter and sort apply at every level.
 
 ### Transfer persistence and concurrency
 
