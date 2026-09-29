@@ -35,6 +35,7 @@ export {
 	type UseFileBrowserResult
 } from './core/use-file-browser'
 export { FileBrowser, type FileBrowserProps } from './components/file-browser'
+export { FileTree, type FileTreeProps } from './components/file-tree'
 export type { FileBrowserUploadPolicy, FileBrowserUploadRejection } from './components/file-browser'
 export {
 	FileBrowserProvider,

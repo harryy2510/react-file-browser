@@ -1,11 +1,12 @@
+import { FileText, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileBrowser, FileBrowserAdapterError, FileBrowserProvider } from '@harryy/react-file-browser'
+import { FileBrowser, FileBrowserAdapterError, FileBrowserProvider, FileTree } from '@harryy/react-file-browser'
 import type { FileBrowserAdapter, FileBrowserProps, FileNode } from '@harryy/react-file-browser'
 import { InMemoryFileBrowserAdapter } from '@harryy/react-file-browser/adapters/in-memory'
 import { getFileBrowserDensityAttributes } from '@harryy/react-file-browser/theme'
 
 type DemoMode = {
-	id: 'full' | 'readonly' | 'minimal' | 'policy' | 'compact' | 'empty' | 'denied'
+	id: 'full' | 'readonly' | 'minimal' | 'policy' | 'compact' | 'empty' | 'denied' | 'tree'
 	label: string
 	description: string
 }
@@ -45,6 +46,11 @@ const DEMO_MODES: DemoMode[] = [
 		id: 'denied',
 		label: 'Denied',
 		description: 'Access-denied loading state from the adapter.'
+	},
+	{
+		id: 'tree',
+		label: 'Tree',
+		description: 'FileTree beside a preview of the selected file, over the same adapter.'
 	}
 ]
 
@@ -75,15 +81,16 @@ export function App() {
 	)
 	const emptyAdapter = useMemo(() => new InMemoryFileBrowserAdapter(), [])
 	const deniedAdapter = useMemo(() => createAccessDeniedAdapter(), [])
-	const seededRef = useRef(false)
+	// Keyed by adapter: a hot reload makes new, empty adapters, which must be seeded again.
+	const seededRef = useRef(new WeakSet<InMemoryFileBrowserAdapter>())
 	const [mode, setMode] = useState<DemoMode['id']>('full')
 	const [ready, setReady] = useState(false)
 
 	useEffect(() => {
-		if (seededRef.current) {
+		if (seededRef.current.has(fullAdapter)) {
 			return
 		}
-		seededRef.current = true
+		seededRef.current.add(fullAdapter)
 
 		async function seedDemo() {
 			await Promise.all([seedAdapter(fullAdapter), seedAdapter(minimalAdapter)])
@@ -155,7 +162,11 @@ export function App() {
 						</div>
 					</section>
 
-					{ready || mode === 'empty' || mode === 'denied' ? (
+					{mode === 'tree' ? (
+						ready ? (
+							<TreePreview adapter={fullAdapter} />
+						) : null
+					) : ready || mode === 'empty' || mode === 'denied' ? (
 						<FileBrowser
 							allowClientZipFallback={mode !== 'minimal'}
 							adapter={adapter}
@@ -183,6 +194,76 @@ export function App() {
 				</FileBrowserProvider>
 			</div>
 		</main>
+	)
+}
+
+/** The tree on the left, and what the selected file holds on the right, as a memory or notes panel would. */
+function TreePreview({ adapter }: { adapter: FileBrowserAdapter }) {
+	// Only a file opens the preview; a folder click just opens or closes it in the tree.
+	const [selected, setSelected] = useState<FileNode | undefined>(undefined)
+	const [contents, setContents] = useState<string | undefined>(undefined)
+
+	useEffect(() => {
+		setContents(undefined)
+		if (!selected) return
+		let cancelled = false
+		void adapter
+			.signedUrl(selected.path)
+			.then((url) => fetch(url))
+			.then((response) => response.text())
+			.then((text) => {
+				if (!cancelled) setContents(text)
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [adapter, selected])
+
+	return (
+		<div
+			className={`grid min-h-[min(520px,100svh)] min-w-0 grid-cols-1 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] ${
+				selected ? 'sm:grid-cols-[minmax(200px,280px)_1fr]' : ''
+			}`}
+		>
+			<div className={`min-w-0 p-3 ${selected ? 'border-b border-[var(--fb-border)] sm:border-r sm:border-b-0' : ''}`}>
+				<FileTree
+					adapter={adapter}
+					defaultExpandedPaths={['/docs']}
+					onDeleted={(node) => {
+						if (node.path === selected?.path) setSelected(undefined)
+					}}
+					onSelect={(node) => {
+						if (node.kind === 'file') setSelected(node)
+					}}
+					rootLabel="Files"
+					selectedPath={selected?.path}
+				/>
+			</div>
+			{selected ? (
+				<div className="min-w-0 p-5">
+					<div className="flex items-center gap-3 border-b border-[var(--fb-border)] pb-3">
+						<FileText aria-hidden className="size-5 shrink-0 text-[var(--fb-muted)]" strokeWidth={1.5} />
+						<div className="min-w-0 flex-1">
+							<div className="truncate text-[14px] font-semibold">{selected.name}</div>
+							<div className="text-[12px] text-[var(--fb-muted)]">
+								{`${selected.mimeType ?? 'File'} · ${selected.size ?? 0} bytes`}
+							</div>
+						</div>
+						<button
+							aria-label="Close preview"
+							className="grid size-8 place-items-center rounded-[calc(var(--fb-radius)-2px)] text-[var(--fb-muted)] transition-colors hover:bg-[var(--fb-surface-2)]"
+							onClick={() => setSelected(undefined)}
+							type="button"
+						>
+							<X aria-hidden className="size-4" />
+						</button>
+					</div>
+					<pre className="mt-3 whitespace-pre-wrap font-[inherit] text-[14px] leading-6 [overflow-wrap:anywhere]">
+						{contents ?? 'Loading…'}
+					</pre>
+				</div>
+			) : null}
+		</div>
 	)
 }
 
