@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/harryy2510/react-file-browser/compare/v1.3.0...v1.4.0) (2026-09-29)
+
+
+### Features
+
+* **file-browser:** add initial view configuration ([de6f74f](https://github.com/harryy2510/react-file-browser/commit/de6f74fc94e7ab3531ce3f7196cc76c698045fec))
+
 # [1.3.0](https://github.com/harryy2510/react-file-browser/compare/v1.2.0...v1.3.0) (2026-09-29)
 
 
