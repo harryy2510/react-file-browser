@@ -149,11 +149,13 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 	const content = (
 		<aside
 			aria-label="Transfers"
-			className={`fixed bottom-[calc(env(safe-area-inset-bottom)+var(--fb-gap)*28)] right-[max(calc(var(--fb-gap)*3),env(safe-area-inset-right))] z-50 flex max-h-[50dvh] max-w-[calc(100%-var(--fb-gap)*6)] flex-col rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-[calc(var(--fb-gap)*3)] text-[12px] text-[var(--fb-text)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)] sm:bottom-[calc(env(safe-area-inset-bottom)+var(--fb-gap)*4)] ${isExpanded ? 'w-[calc(var(--fb-gap)*90)]' : 'w-auto'} ${WIDGET_SURFACE_MOTION}`}
+			className={`fixed bottom-[calc(env(safe-area-inset-bottom)+var(--fb-gap)*28)] right-[max(calc(var(--fb-gap)*3),env(safe-area-inset-right))] z-50 flex max-h-[50dvh] max-w-[calc(100%-var(--fb-gap)*6)] flex-col rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-4 py-3.5 text-[13px] text-[var(--fb-text)] shadow-[0_12px_32px_color-mix(in_oklch,var(--fb-text)_12%,transparent)] sm:bottom-[calc(env(safe-area-inset-bottom)+var(--fb-gap)*5)] sm:right-[max(calc(var(--fb-gap)*5),env(safe-area-inset-right))] ${isExpanded ? 'w-[320px]' : 'w-auto'} ${WIDGET_SURFACE_MOTION}`}
 		>
 			<div className="flex shrink-0 items-center justify-between gap-2">
-				<div className="font-semibold">Transfers</div>
-				<div className="text-[11px] text-[var(--fb-muted)]">{activeUploads.length + downloads.length} active</div>
+				<div className="font-bold">Transfers</div>
+				<div className="ml-auto text-[12px] text-[var(--fb-muted)]">
+					{activeUploads.length + downloads.length} active
+				</div>
 				<button
 					aria-expanded={isExpanded}
 					aria-label={isExpanded ? 'Collapse transfers' : 'Expand transfers'}
@@ -169,7 +171,7 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 				</button>
 			</div>
 			{isExpanded ? (
-				<div className="mt-2 flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]">
+				<div className="mt-2.5 flex min-h-0 min-w-0 flex-col gap-3.5 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]">
 					{uploadGroups.map((group) => (
 						<UploadGroupCard group={group} key={group.group.id} manager={manager} />
 					))}
@@ -177,12 +179,12 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 						<UploadTransferRow key={upload.id} manager={manager} upload={upload} />
 					))}
 					{downloads.map((download) => (
-						<div className="text-[11px] text-[var(--fb-muted)]" key={download.id}>
+						<div className="text-[12px] text-[var(--fb-muted)]" key={download.id}>
 							{download.status === 'ready' && download.url ? (
-								<div className="flex items-center justify-between gap-2">
+								<div className="flex items-center justify-between gap-2 rounded-[var(--fb-radius)] bg-[var(--fb-ok-soft)] py-1 pl-1 pr-1.5">
 									<a
 										aria-label="Open prepared download"
-										className={`inline-flex min-h-[calc(var(--fb-gap)*11)] min-w-0 items-center gap-1 rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)] sm:min-h-7 [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${WIDGET_CONTROL_MOTION}`}
+										className={`inline-flex min-h-[calc(var(--fb-gap)*11)] min-w-0 items-center gap-1.5 rounded-[calc(var(--fb-radius)-2px)] px-2 py-1 font-semibold text-[color-mix(in_oklch,var(--fb-ok)_85%,var(--fb-text))] hover:bg-[color-mix(in_oklch,var(--fb-ok-soft)_60%,var(--fb-surface))] sm:min-h-8 [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${WIDGET_CONTROL_MOTION}`}
 										download
 										href={download.url}
 										onClick={() => manager.dismissDownload(download.id)}
@@ -212,7 +214,14 @@ function FloatingTransferWidget({ manager, snapshot }: { manager: TransferManage
 									</button>
 								</div>
 							) : null}
-							{download.status === 'preparing' ? <span>Preparing zip</span> : null}
+							{download.status === 'preparing' ? (
+								<div className="flex flex-col gap-1.5">
+									<span className="font-semibold text-[var(--fb-text)]">Preparing zip</span>
+									<span className="relative h-1.5 overflow-hidden rounded-full bg-[var(--fb-surface-2)]">
+										<span className="absolute inset-y-0 left-[20%] w-[30%] animate-pulse rounded-full bg-[var(--fb-accent)] motion-reduce:animate-none" />
+									</span>
+								</div>
+							) : null}
 							{download.status === 'failed' ? (
 								<span className="text-[var(--fb-danger)]">{download.error ?? 'Download failed'}</span>
 							) : null}
@@ -239,7 +248,7 @@ function UploadGroupCard({ group, manager }: { group: ActiveUploadGroup; manager
 			<div className="flex items-center justify-between gap-2">
 				<div className="min-w-0">
 					<div className="truncate font-semibold">Uploading {group.group.name}</div>
-					<div className="text-[11px] text-[var(--fb-muted)]">{formatUploadGroupSummary(group)}</div>
+					<div className="text-[12px] text-[var(--fb-muted)]">{formatUploadGroupSummary(group)}</div>
 				</div>
 				<button
 					aria-label={`Cancel upload group ${group.group.name}`}
@@ -255,7 +264,9 @@ function UploadGroupCard({ group, manager }: { group: ActiveUploadGroup; manager
 					<X aria-hidden="true" className="size-3.5" />
 				</button>
 			</div>
-			<div className={`mt-2 flex flex-col gap-1.5 border-l border-[var(--fb-border)] pl-3 ${WIDGET_SURFACE_MOTION}`}>
+			<div
+				className={`mt-2.5 flex flex-col gap-2.5 border-l-2 border-[var(--fb-border)] pl-3 ${WIDGET_SURFACE_MOTION}`}
+			>
 				{group.activeUploads.map((upload) => (
 					<UploadTransferRow compact key={upload.id} manager={manager} upload={upload} />
 				))}
@@ -277,8 +288,8 @@ function UploadTransferRow({
 		<div className={WIDGET_SURFACE_MOTION}>
 			<div className="flex items-center justify-between gap-2">
 				<div className="min-w-0">
-					<span className="block truncate font-medium">{upload.name}</span>
-					<span className="text-[11px] text-[var(--fb-muted)]">{formatUploadStatus(upload)}</span>
+					<span className="block truncate font-semibold">{upload.name}</span>
+					<span className="text-[12px] text-[var(--fb-muted)]">{formatUploadStatus(upload)}</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
 					{['queued', 'uploading'].includes(upload.status) ? (
@@ -343,13 +354,13 @@ function ResumeUploadsPrompt({
 	return createPortal(
 		<ResponsiveDialog label="Resume uploads" narrow={narrow} onClose={onDismiss}>
 			<div
-				className={`w-[min(380px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${WIDGET_SURFACE_MOTION}`}
+				className={`w-[min(400px,100%)] rounded-[calc(var(--fb-radius)+6px)] bg-[var(--fb-surface)] p-6 shadow-[0_24px_60px_color-mix(in_oklch,var(--fb-text)_28%,transparent)] ${WIDGET_SURFACE_MOTION}`}
 			>
-				<h2 className="m-0 text-[14px] font-semibold">Resume uploads</h2>
-				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
+				<h2 className="m-0 text-[17px] font-bold">Resume uploads</h2>
+				<p className="mt-2 text-[14px] leading-relaxed text-[var(--fb-muted)]">
 					Resume {count} upload{count === 1 ? '?' : 's?'}
 				</p>
-				<div className="mt-4 flex flex-wrap justify-end gap-2">
+				<div className="mt-6 flex flex-wrap justify-end gap-2">
 					<button className={widgetTextButton()} onClick={onDismiss} type="button">
 						Dismiss
 					</button>
@@ -366,15 +377,15 @@ function ResumeUploadsPrompt({
 const fallbackTransferManager = new TransferManager()
 
 function widgetIconButton() {
-	return `grid size-7 place-items-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
+	return `grid size-8 place-items-center rounded-[calc(var(--fb-radius)-2px)] border border-transparent bg-transparent text-[var(--fb-muted)] outline-none hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)] focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_oklch,var(--fb-accent)_22%,transparent)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
 }
 
 function widgetTextButton() {
-	return `inline-flex h-7 items-center justify-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[11px] font-medium text-[var(--fb-text)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
+	return `inline-flex h-9 items-center justify-center rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-3.5 text-[13px] font-semibold text-[var(--fb-text)] outline-none hover:bg-[var(--fb-surface-2)] focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_oklch,var(--fb-accent)_22%,transparent)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
 }
 
 function widgetPrimaryButton() {
-	return `inline-flex h-7 items-center justify-center rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2 text-[11px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
+	return `inline-flex h-9 items-center justify-center rounded-[var(--fb-radius)] border border-transparent bg-[var(--fb-accent)] px-3.5 text-[13px] font-semibold text-[var(--fb-surface)] outline-none hover:bg-[color-mix(in_oklch,var(--fb-accent)_88%,var(--fb-text))] focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_oklch,var(--fb-accent)_22%,transparent)] ${WIDGET_TOUCH_CONTROL} ${WIDGET_CONTROL_MOTION}`
 }
 
 function isVisibleUpload(upload: UploadTransfer): boolean {

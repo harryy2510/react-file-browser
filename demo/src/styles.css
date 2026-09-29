@@ -30,6 +30,49 @@
 	--fb-gap: var(--spacing, 0.25rem);
 }
 
+/* Dark values pinned in docs/design/File-Browser-UI-Spec.dc.html (identical markup, token values only). */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		color-scheme: dark;
+		--fb-accent: oklch(0.72 0.16 285);
+		--fb-accent-soft: oklch(0.72 0.16 285 / 0.13);
+		--fb-bg: #101017;
+		--fb-surface: #181821;
+		--fb-surface-2: #20202b;
+		--fb-border: #2a2a38;
+		--fb-border-strong: #3a3a4c;
+		--fb-text: #eeeef4;
+		--fb-muted: #8d8da0;
+		--fb-ok: oklch(0.68 0.13 150);
+		--fb-ok-soft: oklch(0.68 0.13 150 / 0.16);
+		--fb-warn: oklch(0.62 0.13 80);
+		--fb-warn-soft: oklch(0.62 0.13 80 / 0.14);
+		--fb-danger: oklch(0.68 0.16 25);
+		--fb-danger-soft: oklch(0.68 0.16 25 / 0.15);
+		--fb-folder: oklch(0.75 0.11 80);
+	}
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+	--fb-accent: oklch(0.72 0.16 285);
+	--fb-accent-soft: oklch(0.72 0.16 285 / 0.13);
+	--fb-bg: #101017;
+	--fb-surface: #181821;
+	--fb-surface-2: #20202b;
+	--fb-border: #2a2a38;
+	--fb-border-strong: #3a3a4c;
+	--fb-text: #eeeef4;
+	--fb-muted: #8d8da0;
+	--fb-ok: oklch(0.68 0.13 150);
+	--fb-ok-soft: oklch(0.68 0.13 150 / 0.16);
+	--fb-warn: oklch(0.62 0.13 80);
+	--fb-warn-soft: oklch(0.62 0.13 80 / 0.14);
+	--fb-danger: oklch(0.68 0.16 25);
+	--fb-danger-soft: oklch(0.68 0.16 25 / 0.15);
+	--fb-folder: oklch(0.75 0.11 80);
+}
+
 * {
 	box-sizing: border-box;
 }

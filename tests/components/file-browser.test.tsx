@@ -149,14 +149,14 @@ describe('FileBrowser', () => {
 		const comfortableRoot = comfortable.querySelector<HTMLElement>('[data-fb-density]')
 		expect(comfortableRoot).not.toBeNull()
 		expect(comfortableRoot?.getAttribute('data-fb-density')).toBe('comfortable')
-		expect(comfortableRoot?.style.getPropertyValue('--fb-control-h')).toBe('32px')
-		expect(comfortableRoot?.style.getPropertyValue('--fb-card-minh')).toBe('132px')
+		expect(comfortableRoot?.style.getPropertyValue('--fb-control-h')).toBe('40px')
+		expect(comfortableRoot?.style.getPropertyValue('--fb-card-minh')).toBe('150px')
 
 		const { container: compact } = render(<FileBrowser adapter={adapter} density="compact" />)
 		const compactRoot = compact.querySelector<HTMLElement>('[data-fb-density]')
 		expect(compactRoot?.getAttribute('data-fb-density')).toBe('compact')
-		expect(compactRoot?.style.getPropertyValue('--fb-control-h')).toBe('28px')
-		expect(compactRoot?.style.getPropertyValue('--fb-card-minh')).toBe('108px')
+		expect(compactRoot?.style.getPropertyValue('--fb-control-h')).toBe('32px')
+		expect(compactRoot?.style.getPropertyValue('--fb-card-minh')).toBe('120px')
 	})
 
 	test('toggles off a selected item with a plain click', async () => {
@@ -472,7 +472,7 @@ describe('FileBrowser', () => {
 		expect(within(breadcrumb).getByRole('button', { name: 'Files' })).toBeInTheDocument()
 		expect(within(breadcrumb).getByRole('button', { name: 'workspace' })).toBeInTheDocument()
 		expect(within(breadcrumb).queryByRole('button', { name: 'clients' })).not.toBeInTheDocument()
-		expect(within(breadcrumb).getByLabelText('Collapsed breadcrumb')).toHaveTextContent('...')
+		expect(within(breadcrumb).getByLabelText('Collapsed breadcrumb')).toHaveTextContent('…')
 		expect(within(breadcrumb).getByRole('button', { name: 'acme' })).toBeInTheDocument()
 		expect(within(breadcrumb).getByRole('button', { name: 'briefs' })).toBeInTheDocument()
 	})
@@ -635,11 +635,11 @@ describe('FileBrowser', () => {
 
 		await user.keyboard('{ArrowDown}')
 		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('assets')
-		await waitFor(() => expect(screen.getByRole('gridcell', { name: 'assets Folder' })).toHaveFocus())
+		await waitFor(() => expect(screen.getByRole('gridcell', { name: /^assets Folder/ })).toHaveFocus())
 
 		await user.keyboard('{ArrowDown}')
 		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
-		await waitFor(() => expect(screen.getByRole('gridcell', { name: 'hero-banner.jpg 15 B' })).toHaveFocus())
+		await waitFor(() => expect(screen.getByRole('gridcell', { name: /^hero-banner\.jpg 15 B/ })).toHaveFocus())
 
 		await user.keyboard('{End}')
 		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('quarterly-report.pdf')

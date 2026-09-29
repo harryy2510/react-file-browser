@@ -1,20 +1,25 @@
 import {
+	Check,
 	CheckSquare,
+	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	Copy as CopyIcon,
 	Download,
-	File,
 	Folder,
 	FolderInput,
-	Grid2X2,
+	LayoutGrid,
+	FolderPlus,
+	ArrowDown,
+	ArrowUp,
+	Lock,
+	CircleAlert,
 	Info,
 	List,
 	MoreHorizontal,
 	Pencil,
 	Scissors,
 	Search,
-	Square,
 	Trash2,
 	Upload,
 	X as XIcon
@@ -132,6 +137,8 @@ const TOUCH_CONTROL =
 	'shrink-0 whitespace-nowrap [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:min-w-[calc(var(--fb-gap)*11)]'
 const SURFACE_MOTION =
 	'transition-[background-color,border-color,box-shadow,opacity] duration-200 ease-out motion-reduce:transition-none'
+// Accent-tinted text that stays legible on accent-soft fills in light and dark themes.
+const ACCENT_INK = 'text-[color-mix(in_oklch,var(--fb-accent)_80%,var(--fb-text))]'
 const DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS = [
 	'skip',
 	'replace',
@@ -142,32 +149,42 @@ const DEFAULT_UPLOAD_CONFLICT_RESOLUTIONS = [
 // every consumer without shipping global CSS. Classes below reference these vars (e.g. h-[var(--fb-control-h)]).
 const DENSITY_STYLES: Record<FileBrowserDensity, CSSProperties> = {
 	comfortable: {
-		'--fb-font': '13px',
-		'--fb-control-h': '32px',
-		'--fb-cell-x': '12px',
-		'--fb-cell-y': '8px',
-		'--fb-pad': '12px',
-		'--fb-card-min': '150px',
-		'--fb-card-minh': '132px',
-		'--fb-card-pad': '8px',
-		'--fb-thumb-h': '64px',
-		'--fb-grid-gap': '12px',
-		'--fb-panel-w': '18rem',
-		'--fb-panel-pad': '16px'
+		'--fb-font': '14px',
+		'--fb-font-sm': '12px',
+		'--fb-control-h': '40px',
+		'--fb-bar-control-h': '30px',
+		'--fb-header-h': '64px',
+		'--fb-bar-h': '48px',
+		'--fb-row-h': '52px',
+		'--fb-cell-x': '16px',
+		'--fb-cell-y': '10px',
+		'--fb-pad': '24px',
+		'--fb-card-min': '140px',
+		'--fb-card-minh': '150px',
+		'--fb-card-pad': '10px',
+		'--fb-thumb-h': '92px',
+		'--fb-grid-gap': '14px',
+		'--fb-panel-w': '280px',
+		'--fb-panel-pad': '20px'
 	} as CSSProperties,
 	compact: {
-		'--fb-font': '12px',
-		'--fb-control-h': '28px',
-		'--fb-cell-x': '10px',
+		'--fb-font': '13px',
+		'--fb-font-sm': '11px',
+		'--fb-control-h': '32px',
+		'--fb-bar-control-h': '26px',
+		'--fb-header-h': '52px',
+		'--fb-bar-h': '40px',
+		'--fb-row-h': '40px',
+		'--fb-cell-x': '12px',
 		'--fb-cell-y': '6px',
-		'--fb-pad': '8px',
-		'--fb-card-min': '124px',
-		'--fb-card-minh': '108px',
-		'--fb-card-pad': '6px',
-		'--fb-thumb-h': '48px',
-		'--fb-grid-gap': '8px',
-		'--fb-panel-w': '15rem',
-		'--fb-panel-pad': '12px'
+		'--fb-pad': '16px',
+		'--fb-card-min': '120px',
+		'--fb-card-minh': '120px',
+		'--fb-card-pad': '8px',
+		'--fb-thumb-h': '64px',
+		'--fb-grid-gap': '10px',
+		'--fb-panel-w': '240px',
+		'--fb-panel-pad': '16px'
 	} as CSSProperties
 }
 
@@ -1138,52 +1155,61 @@ export function FileBrowser<TMetadata = unknown>({
 		setSelectionActionsOpen(false)
 	}
 
+	const previewPosition = preview ? previewFiles.findIndex((item) => item.path === preview.item.path) + 1 : 0
+	const previewNavButton = `grid size-12 shrink-0 place-items-center rounded-full border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-surface-2)] disabled:opacity-40 ${FOCUS_RING} ${CONTROL_MOTION}`
+
 	const secondaryControls = (
-		<div className="flex min-w-0 flex-wrap items-center gap-[calc(var(--fb-gap)*2)]">
-			<select
+		<div className="flex min-w-0 flex-wrap items-center gap-3">
+			<SelectField
 				aria-label="Filter files"
-				className={selectInput()}
 				onChange={(event) => browser.setFilterKind(event.target.value as 'all' | 'files' | 'folders')}
 				value={browser.filterKind}
 			>
 				<option value="all">All</option>
 				<option value="folders">Folders</option>
 				<option value="files">Files</option>
-			</select>
-			<select
+			</SelectField>
+			<SelectField
 				aria-label="Sort files"
-				className={selectInput()}
 				onChange={(event) => browser.setSortBy(event.target.value as 'name' | 'modifiedAt' | 'size')}
 				value={browser.sortBy}
 			>
 				<option value="name">Name</option>
 				<option value="modifiedAt">Modified</option>
 				<option value="size">Size</option>
-			</select>
+			</SelectField>
 			<button
 				aria-label="Toggle sort direction"
 				className={toolButton(false)}
 				onClick={() => browser.setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))}
 				type="button"
 			>
-				{browser.sortDirection === 'asc' ? 'Asc' : 'Desc'}
+				{browser.sortDirection === 'asc' ? (
+					<ArrowUp aria-hidden="true" className="size-4" />
+				) : (
+					<ArrowDown aria-hidden="true" className="size-4" />
+				)}
 			</button>
-			<button
-				aria-label="Grid view"
-				className={toolButton(browser.view === 'grid')}
-				onClick={() => browser.setView('grid')}
-				type="button"
-			>
-				<Grid2X2 aria-hidden="true" className="size-4" />
-			</button>
-			<button
-				aria-label="List view"
-				className={toolButton(browser.view === 'list')}
-				onClick={() => browser.setView('list')}
-				type="button"
-			>
-				<List aria-hidden="true" className="size-4" />
-			</button>
+			<div className="flex shrink-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)]">
+				<button
+					aria-label="Grid view"
+					aria-pressed={browser.view === 'grid'}
+					className={segmentButton(browser.view === 'grid')}
+					onClick={() => browser.setView('grid')}
+					type="button"
+				>
+					<LayoutGrid aria-hidden="true" className="size-4" strokeWidth={2} />
+				</button>
+				<button
+					aria-label="List view"
+					aria-pressed={browser.view === 'list'}
+					className={segmentButton(browser.view === 'list')}
+					onClick={() => browser.setView('list')}
+					type="button"
+				>
+					<List aria-hidden="true" className="size-4" strokeWidth={2} />
+				</button>
+			</div>
 			{!readOnly && browser.capabilities.createFolder ? (
 				<button
 					className={commandButton(false)}
@@ -1194,7 +1220,7 @@ export function FileBrowser<TMetadata = unknown>({
 					}}
 					type="button"
 				>
-					<Folder aria-hidden="true" className="size-4" />
+					<FolderPlus aria-hidden="true" className="size-4" />
 					New folder
 				</button>
 			) : null}
@@ -1262,7 +1288,7 @@ export function FileBrowser<TMetadata = unknown>({
 
 	return (
 		<section
-			className={`@container/fb relative flex min-h-[min(520px,100svh)] w-full min-w-0 max-w-full rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] font-[inherit] text-[length:var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION}${className ? ` ${className}` : ''}`}
+			className={`@container/fb relative flex min-h-[min(520px,100svh)] w-full min-w-0 max-w-full overflow-hidden rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] font-[inherit] text-[length:var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION}${className ? ` ${className}` : ''}`}
 			data-fb-density={density}
 			data-fb-layout={isNarrow ? 'narrow' : hasSidebar ? 'wide' : 'medium'}
 			ref={rootRef}
@@ -1327,7 +1353,7 @@ export function FileBrowser<TMetadata = unknown>({
 					status: browser.status
 				})}
 			</div>
-			<div className="flex min-w-0 flex-1 flex-col">
+			<div className="@container/fb-main flex min-w-0 flex-1 flex-col">
 				<input
 					accept={uploadPolicy?.allowedMimeTypes?.length ? uploadPolicy.allowedMimeTypes.join(',') : undefined}
 					aria-label="Upload files"
@@ -1338,26 +1364,38 @@ export function FileBrowser<TMetadata = unknown>({
 					className="hidden"
 				/>
 				<header
-					className={`flex min-w-0 flex-wrap items-center gap-[calc(var(--fb-gap)*2)] rounded-t-[var(--fb-radius)] border-b border-[var(--fb-border)] bg-[var(--fb-surface)] px-[var(--fb-pad)] py-[var(--fb-cell-y)] ${SURFACE_MOTION}`}
+					className={`flex min-h-[var(--fb-header-h)] min-w-0 flex-wrap items-center gap-3 border-b @min-[72rem]/fb-main:flex-nowrap border-[var(--fb-border)] px-[var(--fb-pad)] py-3 ${isNarrow ? 'px-4' : ''} ${SURFACE_MOTION}`}
 				>
 					{mobileSelection ? (
 						<div className="flex w-full min-w-0 items-center gap-[calc(var(--fb-gap)*2)]">
 							<button
 								aria-label="Exit selection"
-								className={toolButton(false)}
+								className={`${toolButton(false)} border-transparent bg-transparent`}
 								onClick={exitMobileSelection}
 								type="button"
 							>
 								<XIcon aria-hidden="true" className="size-4" />
 							</button>
-							<span className="mr-auto whitespace-nowrap font-semibold">{browser.selectedPaths.length} selected</span>
-							<button className={commandButton(false)} onClick={browser.selectAllLoaded} type="button">
+							<span className="mr-auto whitespace-nowrap text-[17px] font-bold">
+								{browser.selectedPaths.length} selected
+							</span>
+							<button
+								className={`${barButton('ghost')} font-semibold ${ACCENT_INK}`}
+								onClick={browser.selectAllLoaded}
+								type="button"
+							>
 								Select all
 							</button>
 						</div>
 					) : (
 						<>
-							<div className={isNarrow ? 'min-w-0 flex-1' : 'min-w-0 max-w-full'}>
+							<div
+								className={
+									isNarrow
+										? 'min-w-0 flex-1'
+										: 'w-full min-w-0 overflow-hidden @min-[72rem]/fb-main:w-auto @min-[72rem]/fb-main:flex-1'
+								}
+							>
 								<Breadcrumbs
 									narrow={isNarrow}
 									onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
@@ -1382,7 +1420,7 @@ export function FileBrowser<TMetadata = unknown>({
 					{clipboardNotice ? (
 						<span
 							aria-label="Clipboard status"
-							className={`rounded-[calc(var(--fb-radius)-4px)] bg-[var(--fb-accent-soft)] px-2 py-1 text-[12px] font-medium text-[var(--fb-accent)] ${CONTROL_MOTION}`}
+							className={`rounded-full bg-[var(--fb-accent-soft)] px-3 py-1 text-[var(--fb-font-sm)] font-semibold ${ACCENT_INK} ${CONTROL_MOTION}`}
 							role="status"
 						>
 							{clipboardNotice}
@@ -1390,18 +1428,21 @@ export function FileBrowser<TMetadata = unknown>({
 					) : null}
 					{!mobileSelection ? (
 						<div
-							className={`flex min-w-0 flex-wrap items-center gap-[calc(var(--fb-gap)*2)] ${isNarrow ? 'w-full' : 'ml-auto max-w-full'}`}
+							className={`flex min-w-0 flex-wrap items-center gap-3 ${isNarrow ? 'w-full' : 'w-full @min-[72rem]/fb-main:w-auto @min-[72rem]/fb-main:shrink-0 @min-[72rem]/fb-main:flex-nowrap'}`}
 						>
-							<label className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'w-[calc(var(--fb-gap)*44)] flex-1'}`}>
+							<label
+								className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1 @min-[72rem]/fb-main:w-[240px] @min-[72rem]/fb-main:flex-none'}`}
+							>
 								<Search
 									aria-hidden="true"
-									className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--fb-muted)]"
+									className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
+									strokeWidth={2}
 								/>
 								<input
 									aria-label="Search files"
-									className={`h-[var(--fb-control-h)] min-h-[var(--fb-control-h)] w-full min-w-0 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-7 pr-2 text-[16px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] @min-[40rem]/fb:text-[12px] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
+									className={`h-[var(--fb-control-h)] min-h-[var(--fb-control-h)] w-full min-w-0 rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-9 pr-3 text-[16px] text-[var(--fb-text)] outline-none placeholder:text-[var(--fb-muted)] focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] @min-[40rem]/fb:text-[var(--fb-font)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
 									onChange={(event) => browser.setSearchQuery(event.target.value)}
-									placeholder="Search"
+									placeholder="Search this folder"
 									type="search"
 									value={browser.searchQuery}
 								/>
@@ -1419,8 +1460,8 @@ export function FileBrowser<TMetadata = unknown>({
 
 				{!isNarrow ? selectionActions : null}
 				{!hasSidebar && !isNarrow && showDetailsPanel ? (
-					<div className="flex justify-end border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-[var(--fb-cell-y)]">
-						<button className={commandButton(false)} onClick={() => setDetailsOpen(true)} type="button">
+					<div className="flex justify-end px-[var(--fb-pad)] pt-3">
+						<button className={barButton()} onClick={() => setDetailsOpen(true)} type="button">
 							<Info aria-hidden="true" className="size-4" />
 							Details
 						</button>
@@ -1432,7 +1473,7 @@ export function FileBrowser<TMetadata = unknown>({
 				) : null}
 
 				<div
-					className={`relative min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--fb-bg)] p-[var(--fb-pad)] ${isNarrow && !readOnly && !mobileSelection ? 'pb-[calc(var(--fb-gap)*20)]' : ''} ${SURFACE_MOTION}`}
+					className={`relative min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--fb-bg)] px-[var(--fb-pad)] pb-[var(--fb-pad)] pt-1 ${isNarrow ? 'px-3 pt-3' : ''} ${isNarrow && !readOnly && !mobileSelection ? 'pb-[calc(var(--fb-gap)*20)]' : ''} ${SURFACE_MOTION}`}
 					onClick={clearSelectionFromEmptySurface}
 					onContextMenu={openEmptyContextMenu}
 				>
@@ -1440,12 +1481,13 @@ export function FileBrowser<TMetadata = unknown>({
 						<SkeletonGrid rootLabel={rootLabel} />
 					) : browser.status === 'error' ? (
 						<StateMessage
+							icon={isAccessDeniedError(browser.error) ? 'lock' : 'error'}
 							title={getErrorState(browser.error).title}
-							tone="danger"
 							value={getErrorState(browser.error).value}
 						/>
 					) : browser.filteredItems.length === 0 ? (
 						<StateMessage
+							icon="folder"
 							title={emptyState ? emptyState.title : 'This folder is empty'}
 							value={emptyState ? emptyState.description : 'Create a folder or upload files to start.'}
 						/>
@@ -1513,15 +1555,19 @@ export function FileBrowser<TMetadata = unknown>({
 					)}
 					{dropActive ? (
 						<div
-							className={`pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-[var(--fb-radius)] border-2 border-dashed border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[13px] font-semibold text-[var(--fb-accent)] ${SURFACE_MOTION}`}
+							className={`pointer-events-none absolute inset-4 z-10 flex flex-col items-center justify-center gap-3.5 rounded-[calc(var(--fb-radius)+6px)] border-2 border-dashed border-[var(--fb-accent)] bg-[color-mix(in_oklch,var(--fb-accent-soft)_92%,var(--fb-surface))] text-center backdrop-blur-[1px] ${SURFACE_MOTION}`}
 						>
-							Drop files to upload
+							<span className="grid size-[72px] place-items-center rounded-full bg-[var(--fb-accent)] text-[var(--fb-surface)]">
+								<Upload aria-hidden="true" className="size-8" strokeWidth={2} />
+							</span>
+							<span className={`text-[20px] font-bold ${ACCENT_INK}`}>Drop files to upload</span>
+							<span className="text-[var(--fb-font)] text-[var(--fb-muted)]">Folders keep their structure</span>
 						</div>
 					) : null}
 				</div>
 
 				<footer
-					className={`sticky bottom-0 flex min-h-[calc(var(--fb-gap)*11)] min-w-0 flex-wrap items-center justify-between gap-[var(--fb-gap)] rounded-b-[var(--fb-radius)] border-t border-[var(--fb-border)] bg-[var(--fb-surface)] px-[var(--fb-pad)] py-[var(--fb-gap)] text-[11px] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
+					className={`sticky bottom-0 flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-[var(--fb-gap)] border-t border-[var(--fb-border)] bg-[var(--fb-bg)] px-[var(--fb-pad)] py-1 text-[var(--fb-font-sm)] text-[var(--fb-muted)] ${isNarrow ? 'bg-[var(--fb-surface)] px-3' : ''} ${SURFACE_MOTION}`}
 				>
 					{mobileSelection ? (
 						<div
@@ -1558,7 +1604,7 @@ export function FileBrowser<TMetadata = unknown>({
 					{isNarrow && !readOnly && !mobileSelection ? (
 						<button
 							aria-label="Upload"
-							className={`${primaryButton()} absolute bottom-[calc(var(--fb-gap)*14)] right-[var(--fb-pad)] shadow-lg`}
+							className={`${primaryButton()} absolute bottom-[calc(var(--fb-gap)*14)] right-4 rounded-full px-5 shadow-[0_10px_24px_color-mix(in_oklch,var(--fb-accent)_35%,transparent)]`}
 							onClick={() => uploadInputRef.current?.click()}
 							type="button"
 						>
@@ -1568,7 +1614,7 @@ export function FileBrowser<TMetadata = unknown>({
 					) : null}
 					{browser.hasMore ? (
 						<button
-							className={`min-h-[var(--fb-control-h)] rounded-[calc(var(--fb-radius)-4px)] px-2 py-1 font-medium text-[var(--fb-accent)] hover:bg-[var(--fb-accent-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
+							className={`inline-flex min-h-[var(--fb-bar-control-h)] items-center rounded-[calc(var(--fb-radius)-2px)] px-3 font-semibold ${ACCENT_INK} hover:bg-[var(--fb-accent-soft)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
 							onClick={() => void browser.loadMore()}
 							type="button"
 						>
@@ -1631,18 +1677,19 @@ export function FileBrowser<TMetadata = unknown>({
 			{newFolderOpen ? (
 				<ResponsiveDialog label="New folder" narrow={isNarrow} onClose={() => setNewFolderOpen(false)}>
 					<form
-						className={`w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+						className={`${DIALOG_SURFACE} max-w-[420px]`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void createFolder()
 						}}
 					>
-						<h2 className="m-0 text-[14px] font-semibold">New folder</h2>
-						<label className="mt-3 block text-[12px] font-medium text-[var(--fb-muted)]">
+						<h2 className={DIALOG_TITLE}>New folder</h2>
+						<label className="mt-4 flex flex-col gap-1.5 text-[calc(var(--fb-font)-1px)] font-semibold">
 							Folder name
 							<input
+								aria-invalid={newFolderError ? true : undefined}
 								aria-label="Folder name"
-								className={`mt-1 h-[max(var(--fb-control-h),calc(var(--fb-gap)*9))] w-full min-w-0 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[16px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
+								className={textInput(Boolean(newFolderError))}
 								onChange={(event) => {
 									setNewFolderName(event.target.value)
 									setNewFolderError(null)
@@ -1651,14 +1698,11 @@ export function FileBrowser<TMetadata = unknown>({
 							/>
 						</label>
 						{newFolderError ? (
-							<div
-								className={`mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
-								role="alert"
-							>
+							<div className="mt-2 text-[calc(var(--fb-font)-1px)] text-[var(--fb-danger)]" role="alert">
 								{newFolderError}
 							</div>
 						) : null}
-						<div className="mt-4 flex flex-wrap justify-end gap-2">
+						<div className={DIALOG_ACTIONS}>
 							<button
 								className={commandButton(false)}
 								onClick={() => {
@@ -1680,18 +1724,19 @@ export function FileBrowser<TMetadata = unknown>({
 			{renameItem ? (
 				<ResponsiveDialog label="Rename item" narrow={isNarrow} onClose={() => setRenameItem(null)}>
 					<form
-						className={`w-[min(360px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+						className={`${DIALOG_SURFACE} max-w-[420px]`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void renameSelectedItem()
 						}}
 					>
-						<h2 className="m-0 text-[14px] font-semibold">Rename</h2>
-						<label className="mt-3 block text-[12px] font-medium text-[var(--fb-muted)]">
+						<h2 className={DIALOG_TITLE}>Rename</h2>
+						<label className="mt-4 flex flex-col gap-1.5 text-[calc(var(--fb-font)-1px)] font-semibold">
 							New name
 							<input
+								aria-invalid={renameError ? true : undefined}
 								aria-label="New name"
-								className={`mt-1 h-[max(var(--fb-control-h),calc(var(--fb-gap)*9))] w-full min-w-0 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[16px] text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`}
+								className={textInput(Boolean(renameError))}
 								onChange={(event) => {
 									setRenameValue(event.target.value)
 									setRenameError(null)
@@ -1700,14 +1745,11 @@ export function FileBrowser<TMetadata = unknown>({
 							/>
 						</label>
 						{renameError ? (
-							<div
-								className={`mt-3 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2 py-1.5 text-[12px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
-								role="alert"
-							>
+							<div className="mt-2 text-[calc(var(--fb-font)-1px)] text-[var(--fb-danger)]" role="alert">
 								{renameError}
 							</div>
 						) : null}
-						<div className="mt-4 flex flex-wrap justify-end gap-2">
+						<div className={DIALOG_ACTIONS}>
 							<button
 								className={commandButton(false)}
 								onClick={() => {
@@ -1730,24 +1772,28 @@ export function FileBrowser<TMetadata = unknown>({
 			{deleteConfirmOpen ? (
 				<ResponsiveDialog label="Delete selected items" narrow={isNarrow} onClose={() => setDeleteConfirmOpen(false)}>
 					<form
-						className={`w-[min(400px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+						className={`${DIALOG_SURFACE} max-w-[420px]`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void deleteSelectedItems()
 						}}
 					>
-						<h2 className="m-0 text-[14px] font-semibold">Delete selected items</h2>
-						<p className="mt-2 text-[12px] text-[var(--fb-muted)]">This removes the selected entries from storage.</p>
+						<span className="grid size-11 place-items-center rounded-full bg-[var(--fb-danger-soft)] text-[var(--fb-danger)]">
+							<Trash2 aria-hidden="true" className="size-5" />
+						</span>
+						<h2 className={`${DIALOG_TITLE} mt-3.5`}>Delete selected items</h2>
+						<p className={DIALOG_BODY}>This removes the selected entries from storage.</p>
 						<ul
-							className={`mt-3 max-h-32 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
+							className={`m-0 mt-3 max-h-32 list-none overflow-auto rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-bg)] px-3 py-1.5 text-[calc(var(--fb-font)-1px)] ${SURFACE_MOTION}`}
 						>
 							{browser.selectedItems.map((item) => (
-								<li className="truncate py-1" key={item.path}>
-									{item.name}
+								<li className="flex min-w-0 items-center gap-2 py-1" key={item.path}>
+									<FileTypeTile item={item} size="sm" />
+									<span className="truncate">{item.name}</span>
 								</li>
 							))}
 						</ul>
-						<div className="mt-4 flex flex-wrap justify-end gap-2">
+						<div className={DIALOG_ACTIONS}>
 							<button className={commandButton(false)} onClick={() => setDeleteConfirmOpen(false)} type="button">
 								Cancel
 							</button>
@@ -1762,14 +1808,14 @@ export function FileBrowser<TMetadata = unknown>({
 			{moveDialogOpen ? (
 				<ResponsiveDialog label="Move selected items" narrow={isNarrow} onClose={() => setMoveDialogOpen(false)}>
 					<form
-						className={`w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
+						className={`${DIALOG_SURFACE} max-w-[480px]`}
 						onSubmit={(event) => {
 							event.preventDefault()
 							void moveSelectedItems()
 						}}
 					>
-						<h2 className="m-0 text-[14px] font-semibold">Move selected items</h2>
-						<p className="mt-2 text-[12px] text-[var(--fb-muted)]">Choose a destination folder from the folder tree.</p>
+						<h2 className={DIALOG_TITLE}>Move selected items</h2>
+						<p className={`${DIALOG_BODY} mt-1`}>Choose a destination folder from the folder tree.</p>
 						<MoveDestinationPicker
 							currentPath={browser.currentPath}
 							destinations={moveDestinations}
@@ -1779,8 +1825,10 @@ export function FileBrowser<TMetadata = unknown>({
 							selectedPath={moveDestination}
 							status={moveDestinationStatus}
 						/>
-						<div className="mt-3 truncate text-[11px] text-[var(--fb-muted)]">Destination: {moveDestination}</div>
-						<div className="mt-4 flex flex-wrap justify-end gap-2">
+						<div className="mt-3 truncate text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
+							Destination: {moveDestination}
+						</div>
+						<div className={DIALOG_ACTIONS}>
 							<button className={commandButton(false)} onClick={() => setMoveDialogOpen(false)} type="button">
 								Cancel
 							</button>
@@ -1815,66 +1863,77 @@ export function FileBrowser<TMetadata = unknown>({
 			{preview ? (
 				<ResponsiveDialog label={`Preview ${preview.item.name}`} narrow={isNarrow} onClose={() => setPreview(null)}>
 					<div
-						className={`w-[min(720px,100%)] overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] shadow-[0_22px_70px_color-mix(in_oklch,var(--fb-text)_24%,transparent)] ${SURFACE_MOTION}`}
+						className={`flex w-[min(1120px,100%)] min-w-0 flex-col overflow-hidden rounded-[calc(var(--fb-radius)+6px)] bg-[var(--fb-surface)] shadow-[0_24px_60px_color-mix(in_oklch,var(--fb-text)_30%,transparent)] ${SURFACE_MOTION}`}
 					>
 						<div
-							className={`flex min-h-[calc(var(--fb-gap)*12)] min-w-0 flex-wrap items-center justify-between gap-[calc(var(--fb-gap)*2)] border-b border-[var(--fb-border)] p-[calc(var(--fb-gap)*3)] ${SURFACE_MOTION}`}
+							className={`flex min-h-[60px] min-w-0 items-center gap-3 border-b border-[var(--fb-border)] py-2.5 pl-6 pr-4 ${isNarrow ? 'pl-4' : ''} ${SURFACE_MOTION}`}
 						>
-							<div className="min-w-0 max-w-full flex-1 basis-[calc(var(--fb-gap)*40)] truncate font-semibold">
-								Preview {preview.item.name}
+							<div className="flex min-w-0 flex-1 flex-col">
+								<span className="truncate text-[15px] font-bold">{preview.item.name}</span>
+								<span className="truncate text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
+									{previewPosition > 0 ? `${previewPosition} of ${previewFiles.length} · ` : ''}
+									{formatBytes(preview.item.size ?? 0)}
+									{preview.item.mimeType ? ` · ${preview.item.mimeType}` : ''}
+								</span>
 							</div>
-							<div className="flex shrink-0 items-center gap-1">
-								<button
-									aria-label="Previous file"
-									className={toolButton(false)}
-									disabled={previewFiles.length <= 1}
-									onClick={() => showAdjacentPreview(-1)}
-									type="button"
-								>
-									<ChevronLeft aria-hidden="true" className="size-4" />
-								</button>
-								<button
-									aria-label="Next file"
-									className={toolButton(false)}
-									disabled={previewFiles.length <= 1}
-									onClick={() => showAdjacentPreview(1)}
-									type="button"
-								>
-									<ChevronRight aria-hidden="true" className="size-4" />
-								</button>
-								<button className={toolButton(false)} onClick={() => setPreview(null)} type="button">
-									Close
-								</button>
-							</div>
+							<PreviewOriginalLink preview={preview} />
+							<button
+								aria-label="Close"
+								className={`${toolButton(false)} border-transparent bg-transparent text-[var(--fb-text)]`}
+								onClick={() => setPreview(null)}
+								type="button"
+							>
+								<XIcon aria-hidden="true" className="size-[18px]" />
+							</button>
 						</div>
 						<div
-							className={`grid min-h-[min(260px,40dvh)] min-w-0 place-items-center bg-[var(--fb-bg)] p-[var(--fb-pad)] ${SURFACE_MOTION}`}
+							className={`flex min-h-[min(420px,55dvh)] min-w-0 items-center justify-center gap-6 bg-[var(--fb-bg)] p-6 ${isNarrow ? 'gap-2 p-3' : ''} ${SURFACE_MOTION}`}
 						>
-							{(preview.item.mimeType?.startsWith('image/') && preview.url) || preview.item.thumbnailUrl ? (
-								<div className="min-w-0 max-w-full text-center">
+							<button
+								aria-label="Previous file"
+								className={`${previewNavButton} ${isNarrow ? 'size-10' : ''}`}
+								disabled={previewFiles.length <= 1}
+								onClick={() => showAdjacentPreview(-1)}
+								type="button"
+							>
+								<ChevronLeft aria-hidden="true" className="size-5" />
+							</button>
+							<div className="flex min-w-0 flex-1 justify-center">
+								{(preview.item.mimeType?.startsWith('image/') && preview.url) || preview.item.thumbnailUrl ? (
 									<img
 										alt={preview.item.name}
-										className={`max-h-[min(420px,55dvh)] max-w-full rounded-[calc(var(--fb-radius)-2px)] object-contain ${SURFACE_MOTION}`}
+										className={`max-h-[min(560px,60dvh)] max-w-full rounded-[var(--fb-radius)] object-contain ${SURFACE_MOTION}`}
 										src={preview.url ?? preview.item.thumbnailUrl}
 									/>
-									<PreviewOriginalLink preview={preview} />
-								</div>
-							) : (
-								<div className="min-w-0 max-w-full text-center">
-									<File className="mx-auto size-12 text-[var(--fb-muted)]" />
-									<div className="mt-3 font-semibold">{preview.item.name}</div>
-									<div className="mt-1 text-[12px] text-[var(--fb-muted)]">{preview.item.mimeType ?? 'File'}</div>
-									{preview.status === 'loading' ? (
-										<div className="mt-3 text-[12px] text-[var(--fb-muted)]">Loading preview</div>
-									) : null}
-									{preview.status === 'error' ? (
-										<div className="mt-3 text-[12px] text-[var(--fb-danger)]">
-											{preview.error ?? 'Could not load preview'}
+								) : (
+									<div className="flex min-w-0 max-w-full flex-col items-center gap-3 text-center">
+										<span className="block w-[72px]">
+											<FileTypeTile item={preview.item} size="md" />
+										</span>
+										<div className="text-[15px] font-bold">{preview.item.name}</div>
+										<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">
+											{preview.item.mimeType ?? 'File'}
 										</div>
-									) : null}
-									<PreviewOriginalLink preview={preview} />
-								</div>
-							)}
+										{preview.status === 'loading' ? (
+											<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">Loading preview</div>
+										) : null}
+										{preview.status === 'error' ? (
+											<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-danger)]">
+												{preview.error ?? 'Could not load preview'}
+											</div>
+										) : null}
+									</div>
+								)}
+							</div>
+							<button
+								aria-label="Next file"
+								className={`${previewNavButton} ${isNarrow ? 'size-10' : ''}`}
+								disabled={previewFiles.length <= 1}
+								onClick={() => showAdjacentPreview(1)}
+								type="button"
+							>
+								<ChevronRight aria-hidden="true" className="size-5" />
+							</button>
 						</div>
 					</div>
 				</ResponsiveDialog>
@@ -2131,7 +2190,7 @@ function FileGrid<TMetadata>({
 		<>
 			{gridElement && !narrow ? (
 				<Selecto
-					className="[background:var(--fb-accent-soft)!important] [border-color:var(--fb-accent)!important]"
+					className="rounded-[4px] [background:color-mix(in_oklch,var(--fb-accent)_10%,transparent)!important] [border:1.5px_solid_var(--fb-accent)!important]"
 					container={gridElement}
 					dragContainer={gridElement}
 					hitRate={10}
@@ -2149,7 +2208,7 @@ function FileGrid<TMetadata>({
 			) : null}
 			<div
 				aria-label={rootLabel}
-				className="relative grid min-h-full min-w-0 touch-pan-y content-start grid-cols-[repeat(2,minmax(0,1fr))] gap-[var(--fb-grid-gap)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))]"
+				className="relative grid min-h-full min-w-0 touch-pan-y content-start grid-cols-[repeat(2,minmax(0,1fr))] gap-[calc(var(--fb-grid-gap)-4px)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))] @min-[40rem]/fb:gap-[var(--fb-grid-gap)]"
 				onClick={(event) => {
 					if (!selectionMode && event.target === event.currentTarget && !hasSelectionModifier(event)) {
 						onEmptyClick()
@@ -2249,12 +2308,12 @@ function FileCard<TMetadata>({
 			data-fb-path={item.path}
 			data-fb-selectable="true"
 			draggable={canMove && !narrow}
-			className={`group relative flex min-h-[var(--fb-card-minh)] min-w-0 cursor-default flex-col rounded-[calc(var(--fb-radius)-1px)] border p-[var(--fb-card-pad)] outline-none hover:shadow-[0_8px_22px_color-mix(in_oklch,var(--fb-text)_8%,transparent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${SURFACE_MOTION} ${
+			className={`group relative flex min-h-[var(--fb-card-minh)] min-w-0 cursor-default flex-col gap-1.5 rounded-[calc(var(--fb-radius)+2px)] border-[1.5px] p-[var(--fb-card-pad)] outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_oklch,var(--fb-accent)_22%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--fb-bg)] ${SURFACE_MOTION} ${
 				dropTarget
-					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] ring-2 ring-[var(--fb-accent)] ring-offset-2 ring-offset-[var(--fb-surface)]'
+					? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] ring-2 ring-[var(--fb-accent)] ring-offset-2 ring-offset-[var(--fb-bg)]'
 					: selected
-						? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)]'
-						: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)]'
+						? 'border-[var(--fb-accent)] bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))]'
+						: 'border-[var(--fb-border)] bg-[var(--fb-surface)] hover:border-[var(--fb-border-strong)] hover:shadow-[0_6px_18px_color-mix(in_oklch,var(--fb-text)_7%,transparent)]'
 			}`}
 			onClick={onSelect}
 			onContextMenu={onContextMenu}
@@ -2271,7 +2330,7 @@ function FileCard<TMetadata>({
 				<button
 					aria-label={`Select ${item.name}`}
 					aria-pressed={selected}
-					className="absolute right-0 top-0 z-10 grid size-[calc(var(--fb-gap)*11)] place-items-center text-[var(--fb-accent)]"
+					className="absolute left-0 top-0 z-10 grid size-[calc(var(--fb-gap)*11)] place-items-center"
 					data-fb-touch-control
 					onClick={(event) => {
 						event.stopPropagation()
@@ -2279,33 +2338,14 @@ function FileCard<TMetadata>({
 					}}
 					type="button"
 				>
-					{selected ? (
-						<CheckSquare aria-hidden="true" className="size-5" />
-					) : (
-						<Square aria-hidden="true" className="size-5" />
-					)}
+					<SelectionMark selected={selected} visibleOnHover={false} />
 				</button>
 			) : (
-				<span
-					aria-hidden="true"
-					className={`absolute right-2 top-2 grid size-4 place-items-center rounded border text-[10px] ${CONTROL_MOTION} ${
-						selected
-							? 'border-[var(--fb-accent)] bg-[var(--fb-accent)] text-[var(--fb-surface)]'
-							: 'border-[var(--fb-border)] bg-[var(--fb-surface)] opacity-0 group-hover:opacity-100'
-					}`}
-				>
-					{selected ? '✓' : ''}
+				<span className="absolute left-[calc(var(--fb-card-pad)+8px)] top-[calc(var(--fb-card-pad)+8px)] z-[1]">
+					<SelectionMark selected={selected} />
 				</span>
 			)}
-			<div
-				className={`grid h-[var(--fb-thumb-h)] place-items-center rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)] group-hover:bg-[var(--fb-bg)] ${CONTROL_MOTION}`}
-			>
-				{item.kind === 'folder' ? (
-					<Folder aria-hidden="true" className="size-9 text-[var(--fb-folder)]" />
-				) : (
-					<File aria-hidden="true" className="size-9 text-[var(--fb-muted)]" />
-				)}
-			</div>
+			<FileTypeTile item={item} size="md" />
 			{isRenaming ? (
 				<InlineRenameInput
 					item={item}
@@ -2318,7 +2358,7 @@ function FileCard<TMetadata>({
 				/>
 			) : (
 				<button
-					className={`mt-2 min-w-0 truncate text-left text-[12.5px] font-semibold text-[var(--fb-text)] outline-none [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*11)]' : ''} ${CONTROL_MOTION}`}
+					className={`mt-0.5 min-w-0 truncate rounded-[4px] text-left text-[var(--fb-font)] font-semibold text-[var(--fb-text)] outline-none [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*11)]' : ''} ${CONTROL_MOTION}`}
 					onClick={(event) => {
 						event.stopPropagation()
 						onSelect(event)
@@ -2328,8 +2368,9 @@ function FileCard<TMetadata>({
 					{item.name}
 				</button>
 			)}
-			<div className="mt-1 text-[11px] text-[var(--fb-muted)]">
-				{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
+			<div className="flex min-w-0 gap-1 truncate text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
+				<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
+				{formatShortDate(item.modifiedAt) ? <span>· {formatShortDate(item.modifiedAt)}</span> : null}
 			</div>
 			<ItemMeta item={item} renderItemMeta={renderItemMeta} view="grid" />
 		</article>
@@ -2352,7 +2393,7 @@ function ItemMeta<TMetadata>({
 	const content = renderItemMeta(item, { view })
 	return content === null || content === undefined || content === false ? null : (
 		<div
-			className="mt-1 min-w-0 max-w-full text-[11px] [overflow-wrap:anywhere] [&_*]:max-w-full"
+			className="min-w-0 max-w-full text-[var(--fb-font-sm)] [overflow-wrap:anywhere] [&_*]:max-w-full"
 			data-fb-item-meta={view}
 		>
 			{content}
@@ -2382,7 +2423,7 @@ function InlineRenameInput<TMetadata>({
 			<input
 				aria-label={`Rename ${label || item.name}`}
 				autoFocus
-				className={`mt-2 w-full min-w-0 rounded-[calc(var(--fb-radius)-4px)] border border-[var(--fb-accent)] bg-[var(--fb-surface)] px-1.5 py-1 text-[12.5px] font-semibold text-[var(--fb-text)] outline-none ring-2 ring-[var(--fb-accent-soft)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
+				className={`h-8 w-full min-w-0 rounded-[calc(var(--fb-radius)-4px)] border-[1.5px] border-[var(--fb-accent)] bg-[var(--fb-surface)] px-2 text-[calc(var(--fb-font)-1px)] text-[var(--fb-text)] outline-none ring-[3px] ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
 				onBlur={onCommit}
 				onChange={(event) => onChange(event.target.value)}
 				onClick={(event) => event.stopPropagation()}
@@ -2400,10 +2441,7 @@ function InlineRenameInput<TMetadata>({
 				value={value}
 			/>
 			{error ? (
-				<div
-					className={`mt-1 rounded-[calc(var(--fb-radius)-5px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-1.5 py-1 text-[11px] text-[var(--fb-danger)] ${SURFACE_MOTION}`}
-					role="alert"
-				>
+				<div className={`mt-1 text-[var(--fb-font-sm)] text-[var(--fb-danger)] ${SURFACE_MOTION}`} role="alert">
 					{error}
 				</div>
 			) : null}
@@ -2463,26 +2501,19 @@ function FileTable<TMetadata>({
 	rootLabel: string
 }) {
 	const disclosureSize = getDisclosureSize(narrow)
+	const headCell = `h-10 border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] text-[var(--fb-font-sm)] font-semibold text-[var(--fb-muted)]`
+	const bodyCell =
+		'h-[var(--fb-row-h)] border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[calc(var(--fb-cell-y)/2)]'
 	return (
 		<table
 			aria-label={rootLabel}
-			className={`w-full table-fixed border-separate border-spacing-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-left ${SURFACE_MOTION}`}
+			className={`w-full table-fixed border-separate border-spacing-0 overflow-hidden rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] text-left ${SURFACE_MOTION}`}
 		>
-			<thead className="text-[11px] text-[var(--fb-muted)]">
+			<thead>
 				<tr>
-					<th className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
-						Name
-					</th>
-					{!narrow ? (
-						<th className="w-[22%] border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
-							Size
-						</th>
-					) : null}
-					{!narrow ? (
-						<th className="w-[26%] border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] font-medium">
-							Modified
-						</th>
-					) : null}
+					<th className={headCell}>Name</th>
+					{!narrow ? <th className={`${headCell} w-[140px] text-right`}>Size</th> : null}
+					{!narrow ? <th className={`${headCell} w-[160px] text-right`}>Modified</th> : null}
 				</tr>
 			</thead>
 			<tbody>
@@ -2491,18 +2522,20 @@ function FileTable<TMetadata>({
 						return <FolderStatusRow browser={browser} key={`${row.parentPath}::status`} narrow={narrow} row={row} />
 					}
 					const { item, depth, expanded } = row
+					const isSelected = selectedPaths.includes(item.path)
+					const isDropTarget = folderDropTargetPath === item.path
 					return (
 						<TouchRow
-							aria-selected={selectedPaths.includes(item.path)}
-							data-fb-drop-target={folderDropTargetPath === item.path ? 'true' : undefined}
+							aria-selected={isSelected}
+							data-fb-drop-target={isDropTarget ? 'true' : undefined}
 							data-fb-path={item.path}
-							className={
-								folderDropTargetPath === item.path
-									? `bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)] ${CONTROL_MOTION}`
-									: selectedPaths.includes(item.path)
-										? `bg-[var(--fb-accent-soft)] outline-none focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
-										: `outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${CONTROL_MOTION}`
-							}
+							className={`group outline-none focus-visible:bg-[var(--fb-surface-2)] ${CONTROL_MOTION} ${
+								isDropTarget
+									? 'bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)]'
+									: isSelected
+										? 'bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] shadow-[inset_3px_0_0_var(--fb-accent)]'
+										: 'hover:bg-[color-mix(in_oklch,var(--fb-surface-2)_60%,var(--fb-surface))]'
+							}`}
 							draggable={canMove && !narrow}
 							onLongPress={() => onTouchMenu(item)}
 							key={item.path}
@@ -2515,16 +2548,13 @@ function FileTable<TMetadata>({
 							onDoubleClick={() => onOpenItem(item)}
 							tabIndex={0}
 						>
-							<td
-								className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)]"
-								style={depth > 0 ? { paddingInlineStart: treeIndent(depth) } : undefined}
-							>
-								<div className="flex min-w-0 items-start gap-2">
+							<td className={bodyCell} style={depth > 0 ? { paddingInlineStart: treeIndent(depth) } : undefined}>
+								<div className="flex min-w-0 items-center gap-2.5">
 									{selectionMode ? (
 										<button
 											aria-label={`Select ${item.name}`}
-											aria-pressed={selectedPaths.includes(item.path)}
-											className="grid size-[calc(var(--fb-gap)*11)] shrink-0 place-items-center text-[var(--fb-accent)]"
+											aria-pressed={isSelected}
+											className="-ml-3 grid size-[calc(var(--fb-gap)*11)] shrink-0 place-items-center"
 											data-fb-touch-control
 											onClick={(event) => {
 												event.stopPropagation()
@@ -2532,18 +2562,16 @@ function FileTable<TMetadata>({
 											}}
 											type="button"
 										>
-											{selectedPaths.includes(item.path) ? (
-												<CheckSquare aria-hidden="true" className="size-5" />
-											) : (
-												<Square aria-hidden="true" className="size-5" />
-											)}
+											<SelectionMark selected={isSelected} visibleOnHover={false} />
 										</button>
+									) : !narrow ? (
+										<SelectionMark selected={isSelected} />
 									) : null}
 									{item.kind === 'folder' ? (
 										<button
 											aria-expanded={expanded}
 											aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.name}`}
-											className={`grid shrink-0 place-items-center rounded-[var(--fb-radius)] text-[var(--fb-muted)] hover:bg-[var(--fb-border)] hover:text-[var(--fb-text)] ${disclosureSize} ${CONTROL_MOTION}`}
+											className={`grid shrink-0 place-items-center rounded-[calc(var(--fb-radius)-4px)] text-[var(--fb-muted)] hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)] ${FOCUS_RING} ${disclosureSize} ${CONTROL_MOTION}`}
 											data-fb-touch-control
 											onClick={(event) => {
 												event.stopPropagation()
@@ -2555,16 +2583,13 @@ function FileTable<TMetadata>({
 											<ChevronRight
 												aria-hidden="true"
 												className={`size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none ${expanded ? 'rotate-90' : ''}`}
+												strokeWidth={2.5}
 											/>
 										</button>
 									) : (
 										<span aria-hidden="true" className={`shrink-0 ${disclosureSize}`} />
 									)}
-									{item.kind === 'folder' ? (
-										<Folder className="mt-0.5 size-4 shrink-0 text-[var(--fb-folder)]" />
-									) : (
-										<File className="mt-0.5 size-4 shrink-0 text-[var(--fb-muted)]" />
-									)}
+									<FileTypeTile item={item} size="sm" />
 									<div className="min-w-0 flex-1">
 										{inlineRenameItem?.path === item.path ? (
 											<InlineRenameInput
@@ -2578,7 +2603,7 @@ function FileTable<TMetadata>({
 											/>
 										) : (
 											<button
-												className={`block max-w-full truncate text-left font-medium [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*11)]' : ''} ${CONTROL_MOTION}`}
+												className={`block max-w-full truncate rounded-[4px] text-left text-[var(--fb-font)] font-medium outline-none [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*6)]' : ''} ${CONTROL_MOTION}`}
 												onClick={(event) => {
 													event.stopPropagation()
 													onSelectItem(item.path, event)
@@ -2590,7 +2615,7 @@ function FileTable<TMetadata>({
 										)}
 										<ItemMeta item={item} renderItemMeta={renderItemMeta} view="list" />
 										{narrow ? (
-											<div className="mt-[var(--fb-gap)] flex flex-wrap gap-x-[calc(var(--fb-gap)*3)] text-[11px] text-[var(--fb-muted)]">
+											<div className="flex flex-wrap gap-x-3 text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
 												<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
 												{item.modifiedAt ? <span>{new Date(item.modifiedAt).toLocaleDateString()}</span> : null}
 											</div>
@@ -2599,12 +2624,12 @@ function FileTable<TMetadata>({
 								</div>
 							</td>
 							{!narrow ? (
-								<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
+								<td className={`${bodyCell} text-right text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]`}>
 									{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}
 								</td>
 							) : null}
 							{!narrow ? (
-								<td className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]">
+								<td className={`${bodyCell} text-right text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]`}>
 									{item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString() : '—'}
 								</td>
 							) : null}
@@ -2617,7 +2642,7 @@ function FileTable<TMetadata>({
 }
 
 function treeIndent(depth: number) {
-	return `calc(var(--fb-cell-x) + var(--fb-gap) * ${depth * 5})`
+	return `calc(var(--fb-cell-x) + 18px * ${depth})`
 }
 
 function getDisclosureSize(narrow: boolean) {
@@ -2633,11 +2658,11 @@ function FolderStatusRow<TMetadata>({
 	narrow: boolean
 	row: Extract<FileBrowserListRow<TMetadata>, { type: 'status' }>
 }) {
-	const linkButton = `rounded-[var(--fb-radius)] font-medium text-[var(--fb-accent)] hover:underline ${CONTROL_MOTION}`
+	const linkButton = `rounded-[4px] font-semibold ${ACCENT_INK} hover:underline ${FOCUS_RING} ${CONTROL_MOTION}`
 	return (
 		<tr data-fb-status-for={row.parentPath}>
 			<td
-				className="border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[var(--fb-cell-y)] text-[12px] text-[var(--fb-muted)]"
+				className="h-11 border-b border-[var(--fb-border)] bg-[color-mix(in_oklch,var(--fb-surface-2)_40%,var(--fb-surface))] px-[var(--fb-cell-x)] text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]"
 				colSpan={narrow ? 1 : 3}
 				style={{ paddingInlineStart: treeIndent(row.depth) }}
 			>
@@ -2645,7 +2670,13 @@ function FolderStatusRow<TMetadata>({
 					{/* Same width as the item-row chevron so the status lines up with the child icons. */}
 					<span aria-hidden="true" className={`shrink-0 ${getDisclosureSize(narrow)}`} />
 					{row.status === 'loading' ? (
-						<span role="status">Loading…</span>
+						<span className="inline-flex items-center gap-2" role="status">
+							<span
+								aria-hidden="true"
+								className="size-3.5 animate-spin rounded-full border-2 border-[var(--fb-accent-soft)] border-t-[var(--fb-accent)] motion-reduce:animate-none"
+							/>
+							Loading…
+						</span>
 					) : row.status === 'empty' ? (
 						<span>Empty folder</span>
 					) : row.status === 'more' ? (
@@ -2739,10 +2770,10 @@ function ContextMenu<TMetadata>({
 	const content = (
 		<div
 			aria-label={isItemMenu ? 'Item actions' : 'Folder actions'}
-			className={`rounded-[calc(var(--fb-radius)-2px)] bg-[var(--fb-surface)] p-1 text-[12px] text-[var(--fb-text)] ${SURFACE_MOTION} ${
+			className={`flex flex-col bg-[var(--fb-surface)] text-[var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION} ${
 				isSheet
 					? 'w-full'
-					: 'fixed z-[60] max-h-[calc(100dvh-var(--fb-gap)*4)] min-w-40 max-w-[calc(100%-var(--fb-gap)*4)] overflow-y-auto border border-[var(--fb-border)] shadow-[0_16px_44px_color-mix(in_oklch,var(--fb-text)_16%,transparent)]'
+					: 'fixed z-[60] max-h-[calc(100dvh-var(--fb-gap)*4)] min-w-[200px] max-w-[calc(100%-var(--fb-gap)*4)] overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] p-1.5 shadow-[0_12px_32px_color-mix(in_oklch,var(--fb-text)_12%,transparent)]'
 			}`}
 			data-fb-menu={isSheet ? 'sheet' : 'context'}
 			role="menu"
@@ -2788,6 +2819,7 @@ function ContextMenu<TMetadata>({
 							: 'Copy path'}
 					</ContextMenuButton>
 					{canDownload ? <ContextMenuButton onClick={() => run(onDownload)}>Download</ContextMenuButton> : null}
+					{!readOnly ? <div aria-hidden="true" className="mx-1.5 my-1 h-px bg-[var(--fb-border)]" /> : null}
 					{!readOnly ? (
 						<ContextMenuButton
 							danger
@@ -2829,8 +2861,10 @@ function ContextMenu<TMetadata>({
 function ContextMenuButton({ children, danger, onClick }: { children: string; danger?: boolean; onClick: () => void }) {
 	return (
 		<button
-			className={`flex min-h-[var(--fb-control-h)] w-full items-center rounded-[calc(var(--fb-radius)-4px)] px-2 text-left font-medium outline-none hover:bg-[var(--fb-bg)] focus:bg-[var(--fb-bg)] ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
-				danger ? 'text-[var(--fb-danger)]' : ''
+			className={`flex min-h-9 w-full items-center rounded-[calc(var(--fb-radius)-2px)] px-2.5 text-left outline-none ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+				danger
+					? 'text-[var(--fb-danger)] hover:bg-[var(--fb-danger-soft)] focus:bg-[var(--fb-danger-soft)]'
+					: 'hover:bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] focus:bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))]'
 			}`}
 			onClick={onClick}
 			role="menuitem"
@@ -2866,26 +2900,36 @@ function UploadConflictDialog({
 
 	return (
 		<ResponsiveDialog label="File conflict" narrow={narrow} onClose={onCancel}>
-			<div
-				className={`w-[min(420px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
-			>
-				<h2 className="m-0 text-[14px] font-semibold">File conflict</h2>
-				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
-					{candidate.relativePath} already exists in this folder.
-				</p>
-				<div
-					className={`mt-3 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
-				>
-					Conflict {conflictIndex} of {queue.conflictPaths.length}
+			<div className={`${DIALOG_SURFACE} max-w-[480px]`}>
+				<div className="flex items-baseline justify-between gap-3">
+					<h2 className={DIALOG_TITLE}>File conflict</h2>
+					<span className="shrink-0 text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">
+						Conflict {conflictIndex} of {queue.conflictPaths.length}
+					</span>
 				</div>
-				<label className="mt-3 flex min-h-[calc(var(--fb-gap)*11)] items-center gap-2 text-[12px] font-medium text-[var(--fb-muted)]">
-					<input checked={applyToAll} onChange={(event) => onApplyToAllChange(event.target.checked)} type="checkbox" />
+				<p className={DIALOG_BODY}>{candidate.relativePath} already exists in this folder.</p>
+				<div className="mt-4 flex min-w-0 flex-col gap-1 rounded-[var(--fb-radius)] border-[1.5px] border-[var(--fb-accent)] bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] p-3">
+					<span className={`text-[var(--fb-font-sm)] ${ACCENT_INK}`}>Uploading</span>
+					<span className="truncate text-[var(--fb-font)] font-semibold">{candidate.file.name}</span>
+					<span className="text-[var(--fb-font-sm)] text-[var(--fb-muted)]">{formatBytes(candidate.file.size)}</span>
+				</div>
+				<label className="mt-4 flex min-h-[calc(var(--fb-gap)*11)] items-center gap-2.5 text-[var(--fb-font)] @min-[40rem]/fb:min-h-0">
+					<input
+						checked={applyToAll}
+						className="size-[18px] accent-[var(--fb-accent)]"
+						onChange={(event) => onApplyToAllChange(event.target.checked)}
+						type="checkbox"
+					/>
 					Apply to all conflicts
 				</label>
 				<div
-					className={`mt-4 flex flex-wrap justify-end gap-2 ${narrow ? 'flex-col [&>button]:w-full [&>button]:justify-center' : ''}`}
+					className={`mt-6 flex flex-wrap justify-end gap-2 ${narrow ? 'flex-col [&>button]:w-full [&>button]:justify-center' : ''}`}
 				>
-					<button className={commandButton(false)} onClick={onCancel} type="button">
+					<button
+						className={`${commandButton(false)} border-transparent bg-transparent text-[var(--fb-muted)]`}
+						onClick={onCancel}
+						type="button"
+					>
 						Cancel
 					</button>
 					{resolutions.map((resolution) => (
@@ -2917,26 +2961,27 @@ function BulkFailureDialog({
 
 	return (
 		<ResponsiveDialog label="Partial bulk failure" narrow={narrow} onClose={onClose}>
-			<div
-				className={`w-[min(440px,100%)] rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 shadow-[0_18px_50px_color-mix(in_oklch,var(--fb-text)_18%,transparent)] ${SURFACE_MOTION}`}
-			>
-				<h2 className="m-0 text-[14px] font-semibold">Partial bulk failure</h2>
-				<p className="mt-2 text-[12px] text-[var(--fb-muted)]">
+			<div className={`${DIALOG_SURFACE} max-w-[440px]`}>
+				<div className="flex items-center gap-2.5">
+					<span aria-hidden="true" className="size-2.5 shrink-0 rounded-full bg-[var(--fb-warn)]" />
+					<h2 className={DIALOG_TITLE}>Partial bulk failure</h2>
+				</div>
+				<p className={DIALOG_BODY}>
 					{completedCount} of {error.totalCount} completed
 				</p>
 				<ul
-					className={`mt-3 max-h-40 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 text-[12px] ${SURFACE_MOTION}`}
+					className={`m-0 mt-3 max-h-40 list-none overflow-auto rounded-[var(--fb-radius)] bg-[var(--fb-warn-soft)] px-3 py-2 text-[calc(var(--fb-font)-1px)] ${SURFACE_MOTION}`}
 				>
 					{error.failures.map((failure) => (
-						<li className="py-1" key={failure.path}>
-							<div className="truncate font-medium">
+						<li className="flex min-w-0 flex-wrap justify-between gap-x-3 py-1" key={failure.path}>
+							<span className="min-w-0 truncate font-semibold">
 								{failure.path.split('/').filter(Boolean).at(-1) ?? failure.path}
-							</div>
-							<div className="text-[var(--fb-danger)]">{failure.message}</div>
+							</span>
+							<span className="text-[color-mix(in_oklch,var(--fb-warn)_75%,var(--fb-text))]">{failure.message}</span>
 						</li>
 					))}
 				</ul>
-				<div className="mt-4 flex justify-end">
+				<div className="mt-6 flex justify-end">
 					<button className={primaryButton()} onClick={onClose} type="button">
 						OK
 					</button>
@@ -2965,7 +3010,7 @@ function MoveDestinationPicker({
 }) {
 	return (
 		<div
-			className={`mt-3 max-h-64 overflow-auto rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-bg)] p-2 ${SURFACE_MOTION}`}
+			className={`mt-4 flex max-h-72 flex-col gap-px overflow-auto rounded-[var(--fb-radius)] border border-[var(--fb-border)] p-1.5 ${SURFACE_MOTION}`}
 		>
 			<MoveDestinationButton
 				active={selectedPath === currentPath}
@@ -2975,13 +3020,15 @@ function MoveDestinationPicker({
 			/>
 			<MoveDestinationButton active={selectedPath === '/'} label={rootLabel} onClick={() => onSelect('/')} path="/" />
 			{status === 'loading' ? (
-				<div className="px-2 py-3 text-[12px] text-[var(--fb-muted)]">Loading folders</div>
+				<div className="px-2.5 py-3 text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">Loading folders</div>
 			) : null}
 			{status === 'error' ? (
-				<div className="px-2 py-3 text-[12px] text-[var(--fb-danger)]">{error ?? 'Could not load folders'}</div>
+				<div className="px-2.5 py-3 text-[calc(var(--fb-font)-1px)] text-[var(--fb-danger)]">
+					{error ?? 'Could not load folders'}
+				</div>
 			) : null}
 			{status === 'ready' && destinations.length === 0 ? (
-				<div className="px-2 py-3 text-[12px] text-[var(--fb-muted)]">No folders available.</div>
+				<div className="px-2.5 py-3 text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">No folders available.</div>
 			) : null}
 			{destinations.map((destination) => (
 				<MoveDestinationButton
@@ -3013,14 +3060,18 @@ function MoveDestinationButton({
 	return (
 		<button
 			aria-label={`Move destination ${path}`}
-			className={`mt-1 flex min-h-[var(--fb-control-h)] w-full min-w-0 items-center gap-2 rounded-[calc(var(--fb-radius)-4px)] px-2 text-left text-[12px] font-medium ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
-				active ? 'bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]' : 'hover:bg-[var(--fb-surface)]'
+			className={`flex min-h-[34px] w-full min-w-0 items-center gap-2 rounded-[calc(var(--fb-radius)-2px)] pr-2 text-left text-[var(--fb-font)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+				active ? `bg-[var(--fb-accent-soft)] font-semibold ${ACCENT_INK}` : 'hover:bg-[var(--fb-surface-2)]'
 			}`}
 			onClick={onClick}
-			style={{ paddingLeft: `min(40%, calc((${depth} * 6 + 2) * var(--fb-gap)))` }}
+			style={{ paddingLeft: `min(40%, calc(8px + 18px * ${depth}))` }}
 			type="button"
 		>
-			<Folder aria-hidden="true" className="size-4 shrink-0" />
+			<Folder
+				aria-hidden="true"
+				className={`size-4 shrink-0 fill-current ${active ? 'text-[var(--fb-accent)]' : 'text-[var(--fb-folder)]'}`}
+				strokeWidth={0}
+			/>
 			<span className="truncate">{label}</span>
 		</button>
 	)
@@ -3066,56 +3117,58 @@ function ActionBar({
 	return (
 		<div
 			aria-label="Selection actions"
-			className={`flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-1.5 ${SURFACE_MOTION} ${
-				hasSelection ? 'bg-[var(--fb-accent-soft)]' : 'bg-[var(--fb-surface)]'
-			}`}
+			className={`flex min-h-[var(--fb-bar-h)] min-w-0 flex-wrap items-center gap-2 px-[var(--fb-pad)] py-2 text-[calc(var(--fb-font)-1px)] ${SURFACE_MOTION}`}
 			role="toolbar"
 		>
-			<span className="mr-auto text-[12px] font-semibold">{selectedCount} selected</span>
-			<button className={commandButton(false)} disabled={itemCount === 0} onClick={onSelectAll} type="button">
-				<CheckSquare className="size-4" />
-				Select all
-			</button>
-			<button className={commandButton(false)} disabled={!hasSelection} onClick={onSelectNone} type="button">
-				<XIcon className="size-4" />
-				Select none
-			</button>
+			<span className={`mr-1 whitespace-nowrap font-semibold ${hasSelection ? ACCENT_INK : 'text-[var(--fb-muted)]'}`}>
+				{selectedCount} selected
+			</span>
+			{hasSelection && canDownload ? (
+				<button className={barButton()} onClick={onDownload} type="button">
+					<Download aria-hidden="true" className="size-3.5" />
+					Download
+				</button>
+			) : null}
 			{hasSelection && canRename && selectedCount === 1 ? (
-				<button className={commandButton(false)} onClick={() => onRename()} type="button">
-					<Pencil className="size-4" />
+				<button className={barButton()} onClick={() => onRename()} type="button">
+					<Pencil aria-hidden="true" className="size-3.5" />
 					Rename
 				</button>
 			) : null}
 			{hasSelection && canMove ? (
-				<button className={commandButton(false)} onClick={onMove} type="button">
-					<FolderInput className="size-4" />
+				<button className={barButton()} onClick={onMove} type="button">
+					<FolderInput aria-hidden="true" className="size-3.5" />
 					Move
 				</button>
 			) : null}
 			{hasSelection && canCopy ? (
-				<button className={commandButton(false)} onClick={onCopy} type="button">
-					<CopyIcon className="size-4" />
+				<button className={barButton()} onClick={onCopy} type="button">
+					<CopyIcon aria-hidden="true" className="size-3.5" />
 					Copy
 				</button>
 			) : null}
 			{hasSelection && canCut ? (
-				<button className={commandButton(false)} onClick={onCut} type="button">
-					<Scissors className="size-4" />
+				<button className={barButton()} onClick={onCut} type="button">
+					<Scissors aria-hidden="true" className="size-3.5" />
 					Cut
 				</button>
 			) : null}
-			{hasSelection && canDownload ? (
-				<button className={commandButton(false)} onClick={onDownload} type="button">
-					<Download className="size-4" />
-					Download
-				</button>
-			) : null}
 			{hasSelection && canDelete ? (
-				<button className={dangerButton()} onClick={onDelete} type="button">
-					<Trash2 className="size-4" />
+				<button className={barButton('danger')} onClick={onDelete} type="button">
+					<Trash2 aria-hidden="true" className="size-3.5" />
 					Delete
 				</button>
 			) : null}
+			<span className="ml-auto flex items-center gap-1">
+				<button className={barButton('ghost')} disabled={itemCount === 0} onClick={onSelectAll} type="button">
+					<CheckSquare aria-hidden="true" className="size-3.5" />
+					Select all
+				</button>
+				<button className={barButton('ghost')} disabled={!hasSelection} onClick={onSelectNone} type="button">
+					<XIcon aria-hidden="true" className="size-3.5" />
+					Select none
+				</button>
+			</span>
 		</div>
 	)
 }
@@ -3148,11 +3201,11 @@ function Breadcrumbs({
 			: getVisibleBreadcrumbs(crumbs)
 
 	return (
-		<nav aria-label="Breadcrumb" className="flex min-w-0 max-w-full items-center gap-1">
+		<nav aria-label="Breadcrumb" className="flex min-w-0 max-w-full items-center gap-1.5 text-[var(--fb-font)]">
 			{narrow && parts.length > 0 ? (
 				<button
 					aria-label="Parent folder"
-					className={toolButton(false)}
+					className={`${toolButton(false)} border-transparent bg-transparent text-[var(--fb-text)]`}
 					onClick={() => void onNavigate(getFileBrowserDirname(path))}
 					type="button"
 				>
@@ -3160,25 +3213,26 @@ function Breadcrumbs({
 				</button>
 			) : null}
 			{visibleCrumbs.map((crumb, index) => (
-				<span className="flex min-w-0 items-center gap-1 last:flex-1" key={crumb.key}>
+				<span className="flex min-w-0 items-center gap-1.5 last:flex-1" key={crumb.key}>
 					{index > 0 ? (
-						<span className="text-[var(--fb-muted)]" aria-hidden="true">
-							/
-						</span>
+						<ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-[var(--fb-muted)]" strokeWidth={2} />
 					) : null}
 					{crumb.kind === 'collapsed' ? (
 						<button
 							aria-label="Collapsed breadcrumb"
 							aria-haspopup="dialog"
-							className={`${toolButton(false)} border-0`}
+							className={`inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-[calc(var(--fb-radius)-4px)] bg-[var(--fb-surface-2)] px-1.5 text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)] hover:text-[var(--fb-text)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
 							onClick={() => setAncestorsOpen(true)}
 							type="button"
 						>
-							...
+							…
 						</button>
 					) : (
 						<button
-							className={`min-h-[var(--fb-control-h)] min-w-[var(--fb-control-h)] max-w-[160px] truncate rounded-[calc(var(--fb-radius)-4px)] px-1.5 py-1 text-[12px] font-semibold hover:bg-[var(--fb-bg)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:min-w-[calc(var(--fb-gap)*11)] ${CONTROL_MOTION}`}
+							aria-current={index === visibleCrumbs.length - 1 ? 'page' : undefined}
+							className={`min-w-0 max-w-[180px] truncate rounded-[calc(var(--fb-radius)-4px)] px-0.5 py-1 hover:text-[var(--fb-text)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${FOCUS_RING} ${CONTROL_MOTION} ${
+								index === visibleCrumbs.length - 1 ? 'font-semibold text-[var(--fb-text)]' : 'text-[var(--fb-muted)]'
+							}`}
 							onClick={() => void onNavigate(crumb.path)}
 							type="button"
 						>
@@ -3261,21 +3315,25 @@ function DetailsPanel<TMetadata>({
 	totalBytes: number
 	sheet: boolean
 }) {
-	const panelClass = `min-w-0 max-w-full shrink-0 bg-[var(--fb-surface)] [overflow-wrap:anywhere] [&_*]:max-w-full ${SURFACE_MOTION} ${
-		sheet
-			? 'w-full'
-			: 'w-[var(--fb-panel-w)] rounded-r-[var(--fb-radius)] border-l border-[var(--fb-border)] p-[var(--fb-panel-pad)]'
+	const panelClass = `flex min-w-0 max-w-full shrink-0 flex-col gap-4 bg-[var(--fb-surface)] [overflow-wrap:anywhere] [&_*]:max-w-full ${SURFACE_MOTION} ${
+		sheet ? 'w-full' : 'w-[var(--fb-panel-w)] border-l border-[var(--fb-border)] p-[var(--fb-panel-pad)]'
 	}`
+	const eyebrow = sheet ? null : (
+		<div className="text-[calc(var(--fb-font)-1px)] font-semibold text-[var(--fb-muted)]">Details</div>
+	)
+	const fieldList = 'm-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2.5 text-[calc(var(--fb-font)-1px)]'
+	const panelButton = `${commandButton(false)} w-full`
 	if (!item) {
 		return (
-			<aside aria-label="Details" className={`${panelClass} flex`}>
-				<div className="flex min-h-full flex-1 flex-col items-center justify-center text-center">
+			<aside aria-label="Details" className={panelClass}>
+				{eyebrow}
+				<div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
 					<div
-						className={`grid h-28 w-full place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}
+						className={`grid h-[150px] w-full place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-surface-2)] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
 					>
-						<Square className="size-12 text-[var(--fb-muted)]" />
+						<Info aria-hidden="true" className="size-10" strokeWidth={1.5} />
 					</div>
-					<h2 className="mt-4 text-[14px] font-semibold">No item selected</h2>
+					<h2 className="m-0 text-[var(--fb-font)] font-semibold">No item selected</h2>
 				</div>
 			</aside>
 		)
@@ -3284,91 +3342,83 @@ function DetailsPanel<TMetadata>({
 	if (selectedCount > 1) {
 		return (
 			<aside aria-label="Details" className={panelClass}>
-				<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
-					<CopyIcon className="size-12 text-[var(--fb-muted)]" />
+				{eyebrow}
+				<div
+					className={`grid h-[150px] place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-accent-soft)] ${ACCENT_INK} ${SURFACE_MOTION}`}
+				>
+					<CopyIcon aria-hidden="true" className="size-10" strokeWidth={1.5} />
 				</div>
-				<h2 className="mt-4 text-[14px] font-semibold">{formatItemCount(selectedCount)} selected</h2>
-				<dl className="mt-3 space-y-2 text-[12px]">
-					<div>
-						<dt className="text-[var(--fb-muted)]">Total size</dt>
-						<dd className="font-medium">{formatBytes(totalBytes)}</dd>
-					</div>
+				<h2 className="m-0 text-[16px] font-bold">{formatItemCount(selectedCount)} selected</h2>
+				<dl className={fieldList}>
+					<dt className="text-[var(--fb-muted)]">Total size</dt>
+					<dd className="m-0 font-medium">{formatBytes(totalBytes)}</dd>
 				</dl>
-				{canDownload ? (
+				<div className="flex flex-col gap-2">
+					{canDownload ? (
+						<button
+							aria-label={`Download ${formatItemCount(selectedCount)}`}
+							className={panelButton}
+							onClick={onDownload}
+							type="button"
+						>
+							<Download aria-hidden="true" className="size-4" />
+							Download
+						</button>
+					) : null}
 					<button
-						aria-label={`Download ${formatItemCount(selectedCount)}`}
-						className={`${commandButton(false)} mt-4 w-full justify-center`}
-						onClick={onDownload}
+						aria-label={`Copy ${formatItemCount(selectedCount)} paths`}
+						className={panelButton}
+						onClick={onCopyPath}
 						type="button"
 					>
-						<Download className="size-4" />
-						Download
+						<CopyIcon aria-hidden="true" className="size-4" />
+						Copy paths
 					</button>
-				) : null}
-				<button
-					aria-label={`Copy ${formatItemCount(selectedCount)} paths`}
-					className={`${commandButton(false)} mt-2 w-full justify-center`}
-					onClick={onCopyPath}
-					type="button"
-				>
-					<CopyIcon className="size-4" />
-					Copy paths
-				</button>
+				</div>
 			</aside>
 		)
 	}
 
 	const defaultContent = (
 		<>
-			<div className={`grid h-28 place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-bg)] ${SURFACE_MOTION}`}>
-				{item.kind === 'folder' ? (
-					<Folder className="size-12 text-[var(--fb-folder)]" />
-				) : (
-					<File className="size-12 text-[var(--fb-muted)]" />
-				)}
-			</div>
-			<h2 className="mt-4 truncate text-[14px] font-semibold">{item.name}</h2>
-			<dl className="mt-3 space-y-2 text-[12px]">
-				<div>
-					<dt className="text-[var(--fb-muted)]">Path</dt>
-					<dd className="truncate font-medium">{item.path}</dd>
-				</div>
-				<div>
-					<dt className="text-[var(--fb-muted)]">Type</dt>
-					<dd className="font-medium">{item.kind}</dd>
-				</div>
+			<FileTypeTile item={item} size="lg" />
+			<h2 className="m-0 truncate text-[16px] font-bold">{item.name}</h2>
+			<dl className={fieldList}>
 				{item.kind === 'file' ? (
-					<div>
+					<>
 						<dt className="text-[var(--fb-muted)]">Size</dt>
-						<dd className="font-medium">{formatBytes(item.size ?? 0)}</dd>
-					</div>
+						<dd className="m-0 font-medium">{formatBytes(item.size ?? 0)}</dd>
+					</>
 				) : null}
+				{item.modifiedAt ? (
+					<>
+						<dt className="text-[var(--fb-muted)]">Modified</dt>
+						<dd className="m-0 font-medium">{new Date(item.modifiedAt).toLocaleDateString()}</dd>
+					</>
+				) : null}
+				<dt className="text-[var(--fb-muted)]">Type</dt>
+				<dd className="m-0 font-medium">{item.kind === 'file' && item.mimeType ? item.mimeType : item.kind}</dd>
+				<dt className="text-[var(--fb-muted)]">Path</dt>
+				<dd className="m-0 font-medium [overflow-wrap:anywhere]">{item.path}</dd>
 			</dl>
-			{canDownload ? (
-				<button
-					aria-label={`Download ${item.name}`}
-					className={`${commandButton(false)} mt-4 w-full justify-center`}
-					onClick={onDownload}
-					type="button"
-				>
-					<Download className="size-4" />
-					Download
+			<div className="flex flex-col gap-2">
+				{canDownload ? (
+					<button aria-label={`Download ${item.name}`} className={panelButton} onClick={onDownload} type="button">
+						<Download aria-hidden="true" className="size-4" />
+						Download
+					</button>
+				) : null}
+				<button aria-label={`Copy path of ${item.name}`} className={panelButton} onClick={onCopyPath} type="button">
+					<CopyIcon aria-hidden="true" className="size-4" />
+					Copy path
 				</button>
-			) : null}
-			<button
-				aria-label={`Copy path of ${item.name}`}
-				className={`${commandButton(false)} mt-2 w-full justify-center`}
-				onClick={onCopyPath}
-				type="button"
-			>
-				<CopyIcon className="size-4" />
-				Copy path
-			</button>
+			</div>
 		</>
 	)
 
 	return (
 		<aside aria-label="Details" className={panelClass}>
+			{eyebrow}
 			{renderDetailsContent ? renderDetailsContent(item, defaultContent) : defaultContent}
 		</aside>
 	)
@@ -3382,7 +3432,7 @@ function PreviewOriginalLink<TMetadata>({ preview }: { preview: PreviewState<TMe
 	return (
 		<a
 			aria-label={`Open original ${preview.item.name}`}
-			className={`mt-4 inline-flex min-h-[var(--fb-control-h)] items-center rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2.5 text-[12px] font-medium text-[var(--fb-accent)] outline-none hover:bg-[var(--fb-bg)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
+			className={`${primaryButton()} no-underline`}
 			href={preview.url}
 			rel="noreferrer"
 			target="_blank"
@@ -3396,31 +3446,59 @@ function SkeletonGrid({ rootLabel }: { rootLabel: string }) {
 	return (
 		<div
 			aria-label={rootLabel}
-			className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-[var(--fb-grid-gap)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))]"
+			className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-[calc(var(--fb-grid-gap)-4px)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))] @min-[40rem]/fb:gap-[var(--fb-grid-gap)]"
 			role="grid"
 		>
-			{Array.from({ length: 8 }, (_, index) => (
+			{Array.from({ length: 10 }, (_, index) => (
 				<div
-					className={`min-h-[var(--fb-card-minh)] animate-pulse rounded-[calc(var(--fb-radius)-1px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-card-pad)] ${SURFACE_MOTION}`}
+					className={`flex min-h-[var(--fb-card-minh)] animate-pulse flex-col gap-2 rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-card-pad)] motion-reduce:animate-none ${SURFACE_MOTION}`}
 					key={index}
 				>
-					<div className="h-[var(--fb-thumb-h)] rounded-[calc(var(--fb-radius)-3px)] bg-[var(--fb-surface-2)]" />
-					<div className="mt-3 h-3 w-3/4 rounded bg-[var(--fb-surface-2)]" />
-					<div className="mt-2 h-3 w-1/2 rounded bg-[var(--fb-surface-2)]" />
+					<div className="h-[var(--fb-thumb-h)] rounded-[calc(var(--fb-radius)-2px)] bg-[var(--fb-surface-2)]" />
+					<div className="mt-1 h-2.5 w-4/5 rounded-full bg-[var(--fb-surface-2)]" />
+					<div className="h-2 w-1/2 rounded-full bg-[color-mix(in_oklch,var(--fb-surface-2)_60%,var(--fb-surface))]" />
 				</div>
 			))}
 		</div>
 	)
 }
 
-function StateMessage({ title, value, tone }: { title: ReactNode; value?: ReactNode; tone?: 'danger' }) {
+function StateMessage({
+	icon,
+	title,
+	value
+}: {
+	icon: 'folder' | 'error' | 'lock'
+	title: ReactNode
+	value?: ReactNode
+}) {
 	return (
 		<div
-			className={`grid min-h-[min(280px,50svh)] min-w-0 place-items-center rounded-[var(--fb-radius)] border border-dashed border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-pad)] text-center [overflow-wrap:anywhere] [&_*]:max-w-full ${SURFACE_MOTION}`}
+			className={`grid min-h-[min(320px,50svh)] min-w-0 place-items-center rounded-[calc(var(--fb-radius)+4px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-6 text-center [overflow-wrap:anywhere] [&_*]:max-w-full ${SURFACE_MOTION}`}
 		>
-			<div>
-				<div className={`font-semibold ${tone === 'danger' ? 'text-[var(--fb-danger)]' : ''}`}>{title}</div>
-				{value === undefined ? null : <div className="mt-1 text-[12px] text-[var(--fb-muted)]">{value}</div>}
+			<div className="flex max-w-[340px] flex-col items-center gap-3">
+				<span
+					aria-hidden="true"
+					className={`grid size-16 place-items-center ${
+						icon === 'folder'
+							? `rounded-[16px] ${FILE_TONE_CLASSES.folder}`
+							: icon === 'lock'
+								? 'rounded-full bg-[var(--fb-warn-soft)] text-[color-mix(in_oklch,var(--fb-warn)_80%,var(--fb-text))]'
+								: 'rounded-full bg-[var(--fb-danger-soft)] text-[var(--fb-danger)]'
+					}`}
+				>
+					{icon === 'folder' ? (
+						<Folder className="size-[30px] fill-current" strokeWidth={0} />
+					) : icon === 'lock' ? (
+						<Lock className="size-[26px]" strokeWidth={2} />
+					) : (
+						<CircleAlert className="size-7" strokeWidth={2} />
+					)}
+				</span>
+				<div className="text-[17px] font-bold">{title}</div>
+				{value === undefined ? null : (
+					<div className="text-[var(--fb-font)] leading-relaxed text-[var(--fb-muted)]">{value}</div>
+				)}
 			</div>
 		</div>
 	)
@@ -3436,27 +3514,28 @@ function UploadRejectionAlert({
 	return (
 		<div
 			aria-label="Upload rejected"
-			className="min-w-0 border-b border-[var(--fb-border)] bg-[var(--fb-danger-soft)] px-3 py-2 text-[12px] text-[var(--fb-text)] [overflow-wrap:anywhere]"
+			className="mx-[var(--fb-pad)] mb-2 min-w-0 rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-4 text-[calc(var(--fb-font)-1px)] text-[var(--fb-text)] [overflow-wrap:anywhere]"
 			role="alert"
 		>
 			<div className="flex items-start gap-3">
 				<div className="min-w-0 flex-1">
-					<div className="font-semibold text-[var(--fb-danger)]">Upload rejected</div>
-					<ul className="mt-1 space-y-1">
+					<div className="text-[var(--fb-font)] font-bold">Upload rejected</div>
+					<ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
 						{rejections.map((rejection) => (
-							<li className="min-w-0" key={rejection.relativePath}>
-								<span className="font-medium">{rejection.relativePath}</span>
-								<span className="text-[var(--fb-muted)]"> {rejection.reasons.join('; ')}</span>
+							<li
+								className="flex min-w-0 flex-col gap-0.5 rounded-[calc(var(--fb-radius)-2px)] bg-[var(--fb-danger-soft)] px-2.5 py-2"
+								key={rejection.relativePath}
+							>
+								<span className="font-semibold">{rejection.relativePath}</span>
+								<span className="text-[color-mix(in_oklch,var(--fb-danger)_80%,var(--fb-text))]">
+									{' '}
+									{rejection.reasons.join('; ')}
+								</span>
 							</li>
 						))}
 					</ul>
 				</div>
-				<button
-					aria-label="Dismiss upload rejection"
-					className={commandButton(false)}
-					onClick={onDismiss}
-					type="button"
-				>
+				<button aria-label="Dismiss upload rejection" className={barButton()} onClick={onDismiss} type="button">
 					Dismiss
 				</button>
 			</div>
@@ -3635,30 +3714,157 @@ function formatScreenReaderStatus({
 	return `${folderName} ${status}. ${itemCount} ${itemCount === 1 ? 'item' : 'items'}. ${selectedCount} selected.`
 }
 
+const FOCUS_RING =
+	'outline-none focus-visible:ring-[3px] focus-visible:ring-[color-mix(in_oklch,var(--fb-accent)_22%,transparent)]'
+
 function toolButton(active: boolean) {
-	return `inline-flex h-[var(--fb-control-h)] min-w-[var(--fb-control-h)] items-center justify-center gap-1 rounded-[calc(var(--fb-radius)-3px)] border px-2 text-[12px] font-medium outline-none disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+	return `inline-flex h-[var(--fb-control-h)] min-w-[var(--fb-control-h)] items-center justify-center gap-1.5 rounded-[var(--fb-radius)] border px-2.5 text-[var(--fb-font)] font-medium disabled:opacity-45 ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
 		active
-			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
-			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] hover:bg-[var(--fb-bg)]'
+			? `border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] ${ACCENT_INK}`
+			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-muted)] hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)]'
+	}`
+}
+
+function segmentButton(active: boolean) {
+	return `inline-flex h-[calc(var(--fb-control-h)-2px)] w-11 items-center justify-center ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+		active
+			? `bg-[var(--fb-accent-soft)] ${ACCENT_INK}`
+			: 'bg-transparent text-[var(--fb-muted)] hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)]'
 	}`
 }
 
 function commandButton(active: boolean) {
-	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border px-2.5 text-[12px] font-medium outline-none disabled:cursor-not-allowed disabled:opacity-45 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+	return `inline-flex h-[var(--fb-control-h)] items-center justify-center gap-2 rounded-[var(--fb-radius)] border px-3.5 text-[var(--fb-font)] font-semibold disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
 		active
-			? 'border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] text-[var(--fb-accent)]'
-			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-bg)]'
+			? `border-[var(--fb-accent)] bg-[var(--fb-accent-soft)] ${ACCENT_INK}`
+			: 'border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-surface-2)]'
+	}`
+}
+
+function barButton(tone: 'default' | 'danger' | 'ghost' = 'default') {
+	return `inline-flex h-[var(--fb-bar-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-2px)] px-3 text-[calc(var(--fb-font)-1px)] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${
+		tone === 'ghost'
+			? 'border border-transparent bg-transparent text-[var(--fb-muted)] hover:text-[var(--fb-text)]'
+			: tone === 'danger'
+				? 'border border-[color-mix(in_oklch,var(--fb-danger)_25%,var(--fb-border))] bg-[var(--fb-surface)] text-[var(--fb-danger)] hover:bg-[var(--fb-danger-soft)]'
+				: 'border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-surface-2)]'
 	}`
 }
 
 function primaryButton() {
-	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-accent)] bg-[var(--fb-accent)] px-2.5 text-[12px] font-semibold text-[var(--fb-surface)] outline-none hover:opacity-90 focus:ring-2 focus:ring-[var(--fb-accent-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+	return `inline-flex h-[var(--fb-control-h)] items-center justify-center gap-2 rounded-[var(--fb-radius)] border border-transparent bg-[var(--fb-accent)] px-4 text-[var(--fb-font)] font-semibold text-[var(--fb-surface)] hover:bg-[color-mix(in_oklch,var(--fb-accent)_88%,var(--fb-text))] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`
 }
 
 function dangerButton() {
-	return `inline-flex h-[var(--fb-control-h)] items-center gap-1.5 rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-danger)] bg-[var(--fb-danger-soft)] px-2.5 text-[12px] font-medium text-[var(--fb-danger)] outline-none hover:bg-[var(--fb-danger-soft)] focus:ring-2 focus:ring-[var(--fb-danger-soft)] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+	return `inline-flex h-[var(--fb-control-h)] items-center justify-center gap-2 rounded-[var(--fb-radius)] border border-transparent bg-[var(--fb-danger)] px-4 text-[var(--fb-font)] font-semibold text-[var(--fb-surface)] hover:bg-[color-mix(in_oklch,var(--fb-danger)_88%,var(--fb-text))] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+}
+
+// Native select arrows sit flush against the edge and differ per browser, so the chevron is drawn by us.
+function SelectField(props: React.ComponentProps<'select'>) {
+	return (
+		<span className="relative inline-flex min-w-0 max-w-full shrink-0">
+			<select {...props} className={selectInput()} />
+			<ChevronDown
+				aria-hidden="true"
+				className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
+				strokeWidth={2}
+			/>
+		</span>
+	)
 }
 
 function selectInput() {
-	return `h-[var(--fb-control-h)] min-w-0 max-w-full rounded-[calc(var(--fb-radius)-3px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] px-2 text-[12px] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-2 focus:ring-[var(--fb-accent-soft)] [@media(pointer:coarse)]:text-[16px] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+	return `h-[var(--fb-control-h)] min-w-0 max-w-full appearance-none rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-3 pr-9 text-[var(--fb-font)] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] [@media(pointer:coarse)]:text-[16px] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+}
+
+function textInput(invalid = false) {
+	return `h-[max(var(--fb-control-h),calc(var(--fb-gap)*10))] w-full min-w-0 rounded-[var(--fb-radius)] border bg-[var(--fb-surface)] px-3 text-[16px] text-[var(--fb-text)] outline-none @min-[40rem]/fb:text-[var(--fb-font)] ${CONTROL_MOTION} ${
+		invalid
+			? 'border-[1.5px] border-[var(--fb-danger)] ring-[3px] ring-[color-mix(in_oklch,var(--fb-danger)_12%,transparent)]'
+			: 'border-[var(--fb-border)] focus:border-[1.5px] focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)]'
+	}`
+}
+
+const DIALOG_SURFACE = `w-full min-w-0 rounded-[calc(var(--fb-radius)+6px)] bg-[var(--fb-surface)] p-[calc(var(--fb-gap)*6)] shadow-[0_24px_60px_color-mix(in_oklch,var(--fb-text)_28%,transparent)] ${SURFACE_MOTION}`
+const DIALOG_TITLE = 'm-0 text-[17px] font-bold leading-snug'
+const DIALOG_BODY = 'mt-2 text-[var(--fb-font)] leading-relaxed text-[var(--fb-muted)]'
+const DIALOG_ACTIONS = 'mt-6 flex flex-wrap justify-end gap-2'
+
+type FileTone = 'folder' | 'danger' | 'ok' | 'accent' | 'warn' | 'neutral'
+
+const FILE_TONE_CLASSES: Record<FileTone, string> = {
+	folder:
+		'bg-[color-mix(in_oklch,var(--fb-folder)_22%,var(--fb-surface))] text-[color-mix(in_oklch,var(--fb-folder)_70%,var(--fb-text))]',
+	danger: 'bg-[var(--fb-danger-soft)] text-[var(--fb-danger)]',
+	ok: 'bg-[var(--fb-ok-soft)] text-[var(--fb-ok)]',
+	accent: `bg-[var(--fb-accent-soft)] ${ACCENT_INK}`,
+	warn: 'bg-[var(--fb-warn-soft)] text-[color-mix(in_oklch,var(--fb-warn)_80%,var(--fb-text))]',
+	neutral: 'bg-[var(--fb-surface-2)] text-[var(--fb-muted)]'
+}
+
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'])
+
+function getFileExtension(name: string) {
+	const dot = name.lastIndexOf('.')
+	return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+
+function getFileTone<TMetadata>(item: FileNode<TMetadata>): FileTone {
+	if (item.kind === 'folder') return 'folder'
+	const mime = item.mimeType ?? ''
+	const extension = getFileExtension(item.name)
+	if (mime === 'application/pdf' || extension === 'pdf') return 'danger'
+	if (mime.startsWith('image/')) return 'ok'
+	if (mime.startsWith('video/') || mime.startsWith('audio/')) return 'accent'
+	if (ARCHIVE_EXTENSIONS.has(extension) || /zip|compressed|x-tar/.test(mime)) return 'warn'
+	return 'neutral'
+}
+
+function getFileBadge<TMetadata>(item: FileNode<TMetadata>) {
+	return getFileExtension(item.name).slice(0, 4).toUpperCase() || 'FILE'
+}
+
+function FileTypeTile<TMetadata>({ item, size }: { item: FileNode<TMetadata>; size: 'sm' | 'md' | 'lg' }) {
+	const box =
+		size === 'sm'
+			? 'size-8 rounded-[calc(var(--fb-radius)-2px)] text-[9px]'
+			: size === 'md'
+				? 'h-[var(--fb-thumb-h)] w-full rounded-[calc(var(--fb-radius)-2px)] text-[13px]'
+				: 'h-[150px] w-full rounded-[var(--fb-radius)] text-[15px]'
+	const icon = size === 'sm' ? 'size-4' : 'size-10'
+	return (
+		<span
+			aria-hidden="true"
+			className={`grid shrink-0 place-items-center overflow-hidden font-bold tracking-[0.06em] ${box} ${FILE_TONE_CLASSES[getFileTone(item)]} ${CONTROL_MOTION}`}
+		>
+			{item.kind === 'folder' ? (
+				<Folder className={`${icon} fill-current`} strokeWidth={0} />
+			) : item.thumbnailUrl && size !== 'sm' ? (
+				<img alt="" className="size-full object-cover" draggable={false} loading="lazy" src={item.thumbnailUrl} />
+			) : (
+				getFileBadge(item)
+			)}
+		</span>
+	)
+}
+
+function SelectionMark({ selected, visibleOnHover = true }: { selected: boolean; visibleOnHover?: boolean }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={`grid size-[18px] shrink-0 place-items-center rounded-[5px] text-[var(--fb-surface)] ${CONTROL_MOTION} ${
+				selected
+					? 'bg-[var(--fb-accent)]'
+					: `border-[1.5px] border-[var(--fb-border-strong)] bg-[var(--fb-surface)] ${visibleOnHover ? 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100' : ''}`
+			}`}
+		>
+			{selected ? <Check className="size-3" strokeWidth={3.5} /> : null}
+		</span>
+	)
+}
+
+function formatShortDate(value: string | undefined) {
+	if (!value) return null
+	const date = new Date(value)
+	return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
