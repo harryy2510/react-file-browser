@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/harryy2510/react-file-browser/compare/v1.2.0...v1.3.0) (2026-09-29)
+
+
+### Features
+
+* **file-tree:** add FileTree component ([cb2acb1](https://github.com/harryy2510/react-file-browser/commit/cb2acb170474799f1ea5ffb373257ece95536c72))
+
 # [1.2.0](https://github.com/harryy2510/react-file-browser/compare/v1.1.1...v1.2.0) (2026-09-10)
 
 
