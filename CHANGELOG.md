@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/harryy2510/react-file-browser/compare/v1.4.0...v1.5.0) (2026-09-30)
+
+
+### Features
+
+* **file-browser:** implement new file viewing plugins ([fa39492](https://github.com/harryy2510/react-file-browser/commit/fa39492bab6e2ecaa04605a79845495ae647180a))
+
 # [1.4.0](https://github.com/harryy2510/react-file-browser/compare/v1.3.0...v1.4.0) (2026-09-29)
 
 
