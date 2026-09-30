@@ -18,6 +18,11 @@
 			"@harryy/react-file-browser/adapters/s3": ["./src/adapters/s3/index.ts"],
 			"@harryy/react-file-browser/adapters/r2": ["./src/adapters/r2/index.ts"],
 			"@harryy/react-file-browser/adapters/supabase": ["./src/adapters/supabase/index.ts"],
+			"@harryy/react-file-browser/plugins/code": ["./src/plugins/code/index.tsx"],
+			"@harryy/react-file-browser/plugins/markdown": ["./src/plugins/markdown/index.tsx"],
+			"@harryy/react-file-browser/plugins/csv": ["./src/plugins/csv/index.tsx"],
+			"@harryy/react-file-browser/plugins/xlsx": ["./src/plugins/xlsx/index.tsx"],
+			"@harryy/react-file-browser/plugins/docx": ["./src/plugins/docx/index.tsx"],
 			"@harryy/react-file-browser/theme": ["./src/theme/index.ts"]
 		},
 		"resolveJsonModule": true,

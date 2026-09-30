@@ -1,5 +1,8 @@
 import {
 	Check,
+	Minus,
+	ListFilter,
+	ArrowUpDown,
 	CheckSquare,
 	ChevronDown,
 	ChevronLeft,
@@ -14,7 +17,6 @@ import {
 	ArrowUp,
 	Lock,
 	CircleAlert,
-	Info,
 	List,
 	MoreHorizontal,
 	Pencil,
@@ -24,6 +26,7 @@ import {
 	Upload,
 	X as XIcon
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import Selecto from 'react-selecto'
@@ -31,7 +34,6 @@ import type { OnSelect } from 'react-selecto'
 import type { FileBrowserDensity } from '../theme'
 import { useFileBrowser } from '../core/use-file-browser'
 import type {
-	FileBrowserListRow,
 	FileBrowserPathChangeContext,
 	FileBrowserUploadConflictResolution,
 	FileBrowserView,
@@ -44,6 +46,15 @@ import { collectUploadCandidatesFromDataTransfer, getFileBrowserUploadCandidates
 import type { FileBrowserUploadCandidate } from '../core/upload-drop'
 import { useTransferSnapshot, useTransfers } from '../transfers/file-browser-provider'
 import type { UploadTransferGroup } from '../transfers/transfer-manager'
+import { FileView } from './file-view'
+import {
+	DEFAULT_EDITABLE_BYTES,
+	defaultFileBrowserEditors,
+	defaultFileBrowserPreviewers,
+	findPlugin
+} from './file-plugins'
+import type { FileBrowserEditor, FileBrowserPreviewer } from './file-plugins'
+import { formatBytes, getFileCategory, getFileIcon } from './file-types'
 import { ActionSheet, ResponsiveDialog, useBrowserLayout, useLongPress } from './responsive'
 
 export type FileBrowserProps<TMetadata = unknown> = {
@@ -64,13 +75,20 @@ export type FileBrowserProps<TMetadata = unknown> = {
 	onSearchQueryChange?: (query: string) => void
 	density?: FileBrowserDensity
 	readOnly?: boolean
-	showDetailsPanel?: boolean
 	uploadPolicy?: FileBrowserUploadPolicy
 	uploadConflictResolutions?: readonly FileBrowserUploadConflictResolution[]
 	allowClientZipFallback?: boolean
 	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
-	renderDetailsContent?: (item: FileNode<TMetadata>, defaultContent: ReactNode) => ReactNode
 	warnZipSizeBytes?: number
+	/**
+	 * Marks individual files or folders read-only: no rename, move, cut, delete, or edit, and a
+	 * read-only folder accepts no dropped items. Contents of a read-only folder are judged per item.
+	 */
+	isItemReadOnly?: (item: FileNode<TMetadata>) => boolean
+	/** Inline preview renderers, first match wins. Defaults to `defaultFileBrowserPreviewers`; `[]` disables. */
+	previewers?: readonly FileBrowserPreviewer<TMetadata>[]
+	/** In-place editors, first match wins. Defaults to `defaultFileBrowserEditors`; `[]` disables editing. */
+	editors?: readonly FileBrowserEditor<TMetadata>[]
 }
 
 export type FileBrowserUploadPolicy = {
@@ -122,13 +140,6 @@ type MoveDestination = {
 }
 
 type MoveDestinationStatus = 'idle' | 'loading' | 'ready' | 'error'
-
-type PreviewState<TMetadata = unknown> = {
-	item: FileNode<TMetadata>
-	status: 'loading' | 'ready' | 'error'
-	url?: string
-	error?: string
-}
 
 const FILE_BROWSER_DRAG_MIME = 'application/x.react-file-browser.paths'
 const SELECTED_ITEM_DOUBLE_CLICK_WINDOW_MS = 220
@@ -204,13 +215,14 @@ export function FileBrowser<TMetadata = unknown>({
 	onSearchQueryChange,
 	density = 'comfortable',
 	readOnly = false,
-	showDetailsPanel = true,
 	uploadPolicy,
 	uploadConflictResolutions,
 	allowClientZipFallback = true,
 	renderItemMeta,
-	renderDetailsContent,
-	warnZipSizeBytes
+	warnZipSizeBytes,
+	isItemReadOnly,
+	previewers = defaultFileBrowserPreviewers,
+	editors = defaultFileBrowserEditors
 }: FileBrowserProps<TMetadata>) {
 	const browser = useFileBrowser<TMetadata>({
 		adapter,
@@ -247,18 +259,17 @@ export function FileBrowser<TMetadata = unknown>({
 	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null)
 	const [dropActive, setDropActive] = useState(false)
 	const [folderDropTargetPath, setFolderDropTargetPath] = useState<string | null>(null)
-	const [preview, setPreview] = useState<PreviewState<TMetadata> | null>(null)
+	const [openFile, setOpenFile] = useState<{ item: FileNode<TMetadata>; mode: 'preview' | 'edit' } | null>(null)
+	const fileOpen = openFile !== null
 	const rootRef = useRef<HTMLElement | null>(null)
 	const { isNarrow, hasSidebar } = useBrowserLayout(rootRef)
 	const [mobileSelectionPath, setMobileSelectionPath] = useState<string | null>(null)
 	const [toolbarOpen, setToolbarOpen] = useState(false)
-	const [detailsOpen, setDetailsOpen] = useState(false)
 	const [selectionActionsOpen, setSelectionActionsOpen] = useState(false)
 	const mobileSelection = isNarrow && mobileSelectionPath === browser.currentPath
 	useEffect(() => {
 		setMobileSelectionPath(null)
 		setSelectionActionsOpen(false)
-		setDetailsOpen(false)
 		setToolbarOpen(false)
 	}, [browser.currentPath, isNarrow])
 	const uploadInputRef = useRef<HTMLInputElement | null>(null)
@@ -278,23 +289,35 @@ export function FileBrowser<TMetadata = unknown>({
 	const supportsBulkDownload = browser.capabilities.bulkDownload || allowClientZipFallback
 	const canDownloadSelection = canDownloadItems(browser.selectedItems, supportsBulkDownload)
 	const previewFiles = useMemo(
-		() => browser.visibleItems.filter((item) => item.kind === 'file'),
-		[browser.visibleItems]
+		() => browser.filteredItems.filter((item) => item.kind === 'file'),
+		[browser.filteredItems]
 	)
-	const openPreview = useCallback(
-		async (item: FileNode<TMetadata>) => {
-			setPreview({ item, status: 'loading' })
-			try {
-				const url = await adapter.signedUrl(item.path)
-				setPreview((current) => (current?.item.path === item.path ? { item, status: 'ready', url } : current))
-			} catch (error) {
-				setPreview((current) =>
-					current?.item.path === item.path ? { item, status: 'error', error: toErrorMessage(error) } : current
-				)
-			}
+	const isLocked = useCallback(
+		(item: FileNode<TMetadata>) => readOnly || Boolean(isItemReadOnly?.(item)),
+		[isItemReadOnly, readOnly]
+	)
+	const isItemReadOnlyMark = useCallback(
+		(item: FileNode<TMetadata>) => !readOnly && Boolean(isItemReadOnly?.(item)),
+		[isItemReadOnly, readOnly]
+	)
+	const selectionWritable = !readOnly && !browser.selectedItems.some(isLocked)
+	const getEditor = useCallback(
+		(item: FileNode<TMetadata>) => {
+			if (item.kind !== 'file' || isLocked(item)) return undefined
+			const editor = findPlugin(editors, item)
+			return editor && (item.size ?? 0) <= (editor.maxBytes ?? DEFAULT_EDITABLE_BYTES) ? editor : undefined
 		},
-		[adapter]
+		[editors, isLocked]
 	)
+	const openEditor = useCallback(
+		(item: FileNode<TMetadata>) => {
+			if (getEditor(item)) setOpenFile({ item, mode: 'edit' })
+		},
+		[getEditor]
+	)
+	const openPreview = useCallback((item: FileNode<TMetadata>) => {
+		setOpenFile({ item, mode: 'preview' })
+	}, [])
 	const cancelPendingSelectedItemUnselect = useCallback(() => {
 		if (!pendingSelectedItemUnselectRef.current) {
 			return
@@ -326,9 +349,9 @@ export function FileBrowser<TMetadata = unknown>({
 				if (mobileSelection) {
 					browser.toggleSelection(path)
 				} else {
-					const item = browser.visibleItems.find((candidate) => candidate.path === path)
+					const item = browser.filteredItems.find((candidate) => candidate.path === path)
 					if (item?.kind === 'folder') void browser.open(item)
-					else if (item) void openPreview(item)
+					else if (item) openPreview(item)
 				}
 				return
 			}
@@ -367,7 +390,7 @@ export function FileBrowser<TMetadata = unknown>({
 			if (item.kind === 'folder') {
 				void browser.open(item)
 			} else {
-				void openPreview(item)
+				openPreview(item)
 			}
 		},
 		[browser, cancelPendingSelectedItemUnselect, isNarrow, openPreview]
@@ -384,29 +407,13 @@ export function FileBrowser<TMetadata = unknown>({
 	)
 	const moveKeyboardSelection = useCallback(
 		(key: string, extendSelection: boolean) => {
-			const visibleItems = browser.visibleItems
+			const visibleItems = browser.filteredItems
 			if (visibleItems.length === 0) {
 				return
 			}
 
 			const currentPath = browser.focusedPath ?? browser.selectedPaths.at(-1)
 			const currentIndex = visibleItems.findIndex((item) => item.path === currentPath)
-			const currentRow = browser.listRows.find((row) => row.type === 'item' && row.item.path === currentPath)
-			// List view follows OS outline conventions: Right expands a folder, Left collapses it or jumps to its parent.
-			if (browser.view === 'list' && !extendSelection && currentRow?.type === 'item') {
-				if (key === 'ArrowRight' && currentRow.item.kind === 'folder' && !currentRow.expanded) {
-					browser.expandFolder(currentRow.item.path)
-					return
-				}
-				if (key === 'ArrowLeft' && currentRow.expanded) {
-					browser.collapseFolder(currentRow.item.path)
-					return
-				}
-				if (key === 'ArrowLeft' && currentRow.depth > 0) {
-					browser.selectOnly(getFileBrowserDirname(currentRow.item.path))
-					return
-				}
-			}
 			const fallbackIndex = key === 'ArrowUp' || key === 'ArrowLeft' || key === 'End' ? visibleItems.length - 1 : 0
 			const nextIndex =
 				currentIndex === -1 ? fallbackIndex : getNextKeyboardIndex(key, currentIndex, visibleItems.length)
@@ -460,7 +467,9 @@ export function FileBrowser<TMetadata = unknown>({
 
 	useEffect(() => {
 		const listener = (event: globalThis.KeyboardEvent) => {
+			// An open file owns the keyboard; it handles Escape itself through its unsaved-changes guard.
 			if (
+				fileOpen ||
 				event.defaultPrevented ||
 				(event.target instanceof Element && event.target.closest('[role="dialog"], [role="menu"]'))
 			)
@@ -469,7 +478,6 @@ export function FileBrowser<TMetadata = unknown>({
 				browser.clearSelection()
 				setMobileSelectionPath(null)
 				setToolbarOpen(false)
-				setDetailsOpen(false)
 				setSelectionActionsOpen(false)
 				setInlineRenameItem(null)
 				setInlineRenameValue('')
@@ -482,7 +490,6 @@ export function FileBrowser<TMetadata = unknown>({
 				setBulkFailure(null)
 				setContextMenu(null)
 				setUploadConflictQueue(null)
-				setPreview(null)
 			}
 			if (
 				isEditableEventTarget(event.target) ||
@@ -504,7 +511,12 @@ export function FileBrowser<TMetadata = unknown>({
 				moveKeyboardSelection(event.key, event.shiftKey)
 				return
 			}
-			if (!readOnly && event.key === 'F2' && browser.capabilities.rename && browser.selectedItems.length === 1) {
+			if (
+				selectionWritable &&
+				event.key === 'F2' &&
+				browser.capabilities.rename &&
+				browser.selectedItems.length === 1
+			) {
 				event.preventDefault()
 				const item = browser.selectedItems[0]
 				setRenameItem(null)
@@ -514,7 +526,11 @@ export function FileBrowser<TMetadata = unknown>({
 				setInlineRenameError(null)
 				return
 			}
-			if (!readOnly && (event.key === 'Delete' || event.key === 'Backspace') && browser.selectedPaths.length > 0) {
+			if (
+				selectionWritable &&
+				(event.key === 'Delete' || event.key === 'Backspace') &&
+				browser.selectedPaths.length > 0
+			) {
 				event.preventDefault()
 				setDeleteConfirmOpen(true)
 				return
@@ -526,7 +542,7 @@ export function FileBrowser<TMetadata = unknown>({
 					copySelectedItems()
 					return
 				}
-				if (key === 'x' && browser.capabilities.move && browser.selectedPaths.length > 0) {
+				if (key === 'x' && selectionWritable && browser.capabilities.move && browser.selectedPaths.length > 0) {
 					event.preventDefault()
 					cutSelectedItems()
 					return
@@ -542,7 +558,7 @@ export function FileBrowser<TMetadata = unknown>({
 				if (item.kind === 'folder') {
 					void browser.open(item)
 				} else {
-					void openPreview(item)
+					openPreview(item)
 				}
 			}
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
@@ -561,11 +577,17 @@ export function FileBrowser<TMetadata = unknown>({
 		moveKeyboardSelection,
 		openPreview,
 		pasteClipboardInto,
-		readOnly
+		fileOpen,
+		readOnly,
+		selectionWritable
 	])
 
 	useEffect(() => {
-		if (!browser.focusedPath || rootRef.current?.querySelector('[role="dialog"], [role="menu"]')) {
+		if (
+			!browser.focusedPath ||
+			isEditableEventTarget(document.activeElement) ||
+			rootRef.current?.querySelector('[role="dialog"], [role="menu"]')
+		) {
 			return
 		}
 
@@ -573,7 +595,7 @@ export function FileBrowser<TMetadata = unknown>({
 			`[data-fb-path="${escapeAttributeSelector(browser.focusedPath)}"]`
 		)
 		item?.focus()
-	}, [browser.focusedPath, browser.visibleItems, browser.view])
+	}, [browser.focusedPath, browser.filteredItems, browser.view])
 
 	useEffect(() => {
 		if (!contextMenu) {
@@ -755,6 +777,11 @@ export function FileBrowser<TMetadata = unknown>({
 		}
 
 		const paths = browser.selectedPaths.includes(item.path) ? browser.selectedPaths : [item.path]
+		const lockedPaths = new Set(browser.items.filter(isLocked).map((node) => node.path))
+		if (paths.some((path) => lockedPaths.has(path))) {
+			event.preventDefault()
+			return
+		}
 		draggedItemPathsRef.current = paths
 		setDropActive(false)
 		setFolderDropTargetPath(null)
@@ -775,16 +802,12 @@ export function FileBrowser<TMetadata = unknown>({
 	}
 
 	function allowFolderDrop(item: FileNode<TMetadata>, event: DragEvent) {
-		if (readOnly || !browser.capabilities.move || item.kind !== 'folder') {
+		if (isLocked(item) || !browser.capabilities.move || item.kind !== 'folder') {
 			return
 		}
 
 		const paths = getActiveDraggedPaths(event.dataTransfer)
-		if (
-			paths.length === 0 ||
-			paths.some((path) => item.path === path || item.path.startsWith(`${path}/`)) ||
-			paths.every((path) => getFileBrowserDirname(path) === item.path)
-		) {
+		if (paths.length === 0 || paths.some((path) => item.path === path || item.path.startsWith(`${path}/`))) {
 			return
 		}
 
@@ -796,12 +819,12 @@ export function FileBrowser<TMetadata = unknown>({
 	}
 
 	async function moveDraggedItemsToFolder(item: FileNode<TMetadata>, event: DragEvent) {
-		if (readOnly || !browser.capabilities.move || item.kind !== 'folder') {
+		if (isLocked(item) || !browser.capabilities.move || item.kind !== 'folder') {
 			return
 		}
 
 		const paths = getActiveDraggedPaths(event.dataTransfer)
-		if (paths.every((path) => getFileBrowserDirname(path) === item.path)) {
+		if (paths.length === 0) {
 			return
 		}
 
@@ -832,6 +855,25 @@ export function FileBrowser<TMetadata = unknown>({
 			y: event.clientY,
 			mode: isNarrow ? 'sheet' : 'context'
 		})
+	}
+
+	function openItemMenu(item: FileNode<TMetadata>, anchor: HTMLElement) {
+		if (!browser.selectedPaths.includes(item.path)) {
+			browser.selectOnly(item.path)
+		}
+		const rect = anchor.getBoundingClientRect()
+		setContextMenu({
+			target: 'item',
+			item,
+			x: rect.left,
+			y: rect.bottom + 4,
+			mode: isNarrow ? 'sheet' : 'context'
+		})
+	}
+
+	function openItem(item: FileNode<TMetadata>) {
+		if (item.kind === 'folder') void browser.open(item)
+		else openPreview(item)
 	}
 
 	function openItemTouchMenu(item: FileNode<TMetadata>) {
@@ -870,16 +912,15 @@ export function FileBrowser<TMetadata = unknown>({
 		browser.clearSelection()
 	}
 
-	function showAdjacentPreview(direction: -1 | 1) {
-		if (!preview || previewFiles.length === 0) {
+	function stepOpenFile(direction: -1 | 1) {
+		if (!openFile || previewFiles.length === 0) {
 			return
 		}
 
-		const currentIndex = previewFiles.findIndex((item) => item.path === preview.item.path)
+		const currentIndex = previewFiles.findIndex((item) => item.path === openFile.item.path)
 		const safeIndex = currentIndex >= 0 ? currentIndex : 0
-		const nextIndex = (safeIndex + direction + previewFiles.length) % previewFiles.length
-		const next = previewFiles[nextIndex]
-		void openPreview(next)
+		const next = previewFiles[(safeIndex + direction + previewFiles.length) % previewFiles.length]
+		setOpenFile({ item: next, mode: 'preview' })
 		browser.selectOnly(next.path)
 	}
 
@@ -1159,8 +1200,7 @@ export function FileBrowser<TMetadata = unknown>({
 		setSelectionActionsOpen(false)
 	}
 
-	const previewPosition = preview ? previewFiles.findIndex((item) => item.path === preview.item.path) + 1 : 0
-	const previewNavButton = `grid size-12 shrink-0 place-items-center rounded-full border border-[var(--fb-border)] bg-[var(--fb-surface)] text-[var(--fb-text)] hover:bg-[var(--fb-surface-2)] disabled:opacity-40 ${FOCUS_RING} ${CONTROL_MOTION}`
+	const openFilePosition = openFile ? previewFiles.findIndex((item) => item.path === openFile.item.path) + 1 : 0
 
 	const clipboardStatus = clipboardNotice ? (
 		<span
@@ -1172,19 +1212,50 @@ export function FileBrowser<TMetadata = unknown>({
 		</span>
 	) : null
 
+	const viewToggle = (
+		<div
+			aria-label="View"
+			className="flex shrink-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)]"
+			role="group"
+		>
+			<button
+				aria-label="List view"
+				aria-pressed={browser.view === 'list'}
+				className={segmentButton(browser.view === 'list')}
+				onClick={() => browser.setView('list')}
+				title="List view"
+				type="button"
+			>
+				<List aria-hidden="true" className="size-4" strokeWidth={2} />
+			</button>
+			<button
+				aria-label="Grid view"
+				aria-pressed={browser.view === 'grid'}
+				className={segmentButton(browser.view === 'grid')}
+				onClick={() => browser.setView('grid')}
+				title="Grid view"
+				type="button"
+			>
+				<LayoutGrid aria-hidden="true" className="size-4" strokeWidth={2} />
+			</button>
+		</div>
+	)
+
 	const secondaryControls = (
 		<div className="flex min-w-0 flex-wrap items-center gap-3">
 			<SelectField
 				aria-label="Filter files"
+				icon={ListFilter}
 				onChange={(event) => browser.setFilterKind(event.target.value as 'all' | 'files' | 'folders')}
 				value={browser.filterKind}
 			>
-				<option value="all">All</option>
+				<option value="all">All kinds</option>
 				<option value="folders">Folders</option>
 				<option value="files">Files</option>
 			</SelectField>
 			<SelectField
 				aria-label="Sort files"
+				icon={ArrowUpDown}
 				onChange={(event) => browser.setSortBy(event.target.value as 'name' | 'modifiedAt' | 'size')}
 				value={browser.sortBy}
 			>
@@ -1204,26 +1275,7 @@ export function FileBrowser<TMetadata = unknown>({
 					<ArrowDown aria-hidden="true" className="size-4" />
 				)}
 			</button>
-			<div className="flex shrink-0 overflow-hidden rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)]">
-				<button
-					aria-label="Grid view"
-					aria-pressed={browser.view === 'grid'}
-					className={segmentButton(browser.view === 'grid')}
-					onClick={() => browser.setView('grid')}
-					type="button"
-				>
-					<LayoutGrid aria-hidden="true" className="size-4" strokeWidth={2} />
-				</button>
-				<button
-					aria-label="List view"
-					aria-pressed={browser.view === 'list'}
-					className={segmentButton(browser.view === 'list')}
-					onClick={() => browser.setView('list')}
-					type="button"
-				>
-					<List aria-hidden="true" className="size-4" strokeWidth={2} />
-				</button>
-			</div>
+			{!isNarrow ? viewToggle : null}
 			{!readOnly && browser.capabilities.createFolder ? (
 				<button
 					className={commandButton(false)}
@@ -1269,10 +1321,10 @@ export function FileBrowser<TMetadata = unknown>({
 	const selectionActions = (
 		<ActionBar
 			canCopy={!readOnly && browser.capabilities.copy}
-			canCut={!readOnly && browser.capabilities.move}
-			canDelete={!readOnly}
-			canMove={!readOnly && browser.capabilities.move}
-			canRename={!readOnly && browser.capabilities.rename}
+			canCut={selectionWritable && browser.capabilities.move}
+			canDelete={selectionWritable}
+			canMove={selectionWritable && browser.capabilities.move}
+			canRename={selectionWritable && browser.capabilities.rename}
 			canDownload={canDownloadSelection}
 			itemCount={browser.filteredItems.length}
 			onCopy={() => copySelectedItems()}
@@ -1284,19 +1336,6 @@ export function FileBrowser<TMetadata = unknown>({
 			onSelectAll={browser.selectAllLoaded}
 			onSelectNone={browser.clearSelection}
 			selectedCount={browser.selectedPaths.length}
-		/>
-	)
-
-	const detailsContent = (
-		<DetailsPanel
-			canDownload={canDownloadSelection}
-			item={selected}
-			onCopyPath={() => void copyItemPaths(browser.selectedPaths)}
-			onDownload={() => void downloadSelection()}
-			renderDetailsContent={renderDetailsContent}
-			selectedCount={browser.selectedItems.length}
-			totalBytes={totalSelectedBytes}
-			sheet={!hasSidebar}
 		/>
 	)
 
@@ -1377,260 +1416,269 @@ export function FileBrowser<TMetadata = unknown>({
 					type="file"
 					className="hidden"
 				/>
-				<header
-					className={`flex min-h-[var(--fb-header-h)] min-w-0 flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-3 ${isNarrow ? 'px-4' : ''} ${SURFACE_MOTION}`}
-				>
-					{mobileSelection ? (
-						<div className="flex w-full min-w-0 items-center gap-[calc(var(--fb-gap)*2)]">
-							<button
-								aria-label="Exit selection"
-								className={`${toolButton(false)} border-transparent bg-transparent`}
-								onClick={exitMobileSelection}
-								type="button"
-							>
-								<XIcon aria-hidden="true" className="size-4" />
-							</button>
-							<span className="mr-auto whitespace-nowrap text-[17px] font-bold">
-								{browser.selectedPaths.length} selected
-							</span>
-							<button
-								className={`${barButton('ghost')} font-semibold ${ACCENT_INK}`}
-								onClick={browser.selectAllLoaded}
-								type="button"
-							>
-								Select all
-							</button>
-						</div>
-					) : (
-						<>
-							<div className={`flex min-w-0 items-center gap-3 ${isNarrow ? 'flex-1' : 'w-full'}`}>
-								<div className="min-w-0 flex-1">
-									<Breadcrumbs
-										narrow={isNarrow}
-										onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
-										path={browser.currentPath}
-										rootLabel={rootLabel}
-									/>
+				{openFile ? (
+					<FileView
+						adapter={adapter}
+						breadcrumbs={(navigate) => (
+							<Breadcrumbs
+								narrow={isNarrow}
+								onNavigate={(nextPath) => Promise.resolve(navigate(nextPath))}
+								path={openFile.item.path}
+								rootLabel={rootLabel}
+							/>
+						)}
+						editor={getEditor(openFile.item)}
+						initialMode={openFile.mode}
+						item={openFile.item}
+						key={openFile.item.path}
+						onClose={() => setOpenFile(null)}
+						onDownload={() => void downloadItem(openFile.item)}
+						onNavigate={(nextPath) => {
+							setOpenFile(null)
+							void browser.navigate(nextPath, { source: 'breadcrumb' })
+						}}
+						onSaved={() => void browser.refresh()}
+						onStep={stepOpenFile}
+						position={openFilePosition > 0 ? { index: openFilePosition, total: previewFiles.length } : undefined}
+						previewer={findPlugin(previewers, openFile.item)}
+					/>
+				) : (
+					<>
+						<header
+							className={`flex min-h-[var(--fb-header-h)] min-w-0 flex-wrap items-center gap-x-3 gap-y-2.5 border-b border-[var(--fb-border)] px-[var(--fb-pad)] py-3 ${isNarrow ? 'px-4' : ''} ${SURFACE_MOTION}`}
+						>
+							{mobileSelection ? (
+								<div className="flex w-full min-w-0 items-center gap-[calc(var(--fb-gap)*2)]">
+									<button
+										aria-label="Exit selection"
+										className={`${toolButton(false)} border-transparent bg-transparent`}
+										onClick={exitMobileSelection}
+										type="button"
+									>
+										<XIcon aria-hidden="true" className="size-4" />
+									</button>
+									<span className="mr-auto whitespace-nowrap text-[17px] font-bold">
+										{browser.selectedPaths.length} selected
+									</span>
+									<button
+										className={`${barButton('ghost')} font-semibold ${ACCENT_INK}`}
+										onClick={browser.selectAllLoaded}
+										type="button"
+									>
+										Select all
+									</button>
 								</div>
-								{clipboardStatus}
-							</div>
-							{isNarrow ? (
+							) : (
+								<>
+									<div className={`flex min-w-0 items-center gap-3 ${isNarrow ? 'flex-1' : 'w-full'}`}>
+										<div className="min-w-0 flex-1">
+											<Breadcrumbs
+												narrow={isNarrow}
+												onNavigate={(nextPath) => browser.navigate(nextPath, { source: 'breadcrumb' })}
+												path={browser.currentPath}
+												rootLabel={rootLabel}
+											/>
+										</div>
+										{clipboardStatus}
+									</div>
+									{isNarrow ? viewToggle : null}
+									{isNarrow ? (
+										<button
+											aria-label="Browser options"
+											aria-expanded={toolbarOpen}
+											aria-haspopup="dialog"
+											className={toolButton(false)}
+											onClick={() => setToolbarOpen(true)}
+											type="button"
+										>
+											<MoreHorizontal aria-hidden="true" className="size-5" />
+										</button>
+									) : null}
+								</>
+							)}
+							{mobileSelection ? clipboardStatus : null}
+							{!mobileSelection ? (
+								<div className="flex w-full min-w-0 flex-wrap items-center gap-3">
+									<label className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1'}`}>
+										<Search
+											aria-hidden="true"
+											className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
+											strokeWidth={2}
+										/>
+										<input
+											aria-label="Search files"
+											className={`h-[var(--fb-control-h)] min-h-[var(--fb-control-h)] w-full min-w-0 rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-9 pr-3 text-[16px] text-[var(--fb-text)] outline-none placeholder:text-[var(--fb-muted)] focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] @min-[40rem]/fb:text-[var(--fb-font)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
+											onChange={(event) => browser.setSearchQuery(event.target.value)}
+											placeholder="Search this folder"
+											type="search"
+											value={browser.searchQuery}
+										/>
+									</label>
+									{!isNarrow ? secondaryControls : null}
+									{!isNarrow && !readOnly ? (
+										<button className={primaryButton()} onClick={() => uploadInputRef.current?.click()} type="button">
+											<Upload aria-hidden="true" className="size-4" />
+											Upload
+										</button>
+									) : null}
+								</div>
+							) : null}
+						</header>
+
+						{!isNarrow ? selectionActions : null}
+						{uploadRejections.length > 0 ? (
+							<UploadRejectionAlert onDismiss={() => setUploadRejections([])} rejections={uploadRejections} />
+						) : null}
+
+						<div
+							className={`relative min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--fb-bg)] px-[var(--fb-pad)] pb-[var(--fb-pad)] pt-1 ${isNarrow ? 'px-3 pt-3' : ''} ${isNarrow && !readOnly && !mobileSelection ? 'pb-[calc(var(--fb-gap)*20)]' : ''} ${SURFACE_MOTION}`}
+							onClick={clearSelectionFromEmptySurface}
+							onContextMenu={openEmptyContextMenu}
+						>
+							{browser.status === 'loading' && browser.items.length === 0 ? (
+								<SkeletonGrid rootLabel={rootLabel} />
+							) : browser.status === 'error' ? (
+								<StateMessage
+									icon={isAccessDeniedError(browser.error) ? 'lock' : 'error'}
+									title={getErrorState(browser.error).title}
+									value={getErrorState(browser.error).value}
+								/>
+							) : browser.filteredItems.length === 0 ? (
+								<StateMessage
+									icon="folder"
+									title={emptyState ? emptyState.title : 'This folder is empty'}
+									value={emptyState ? emptyState.description : 'Create a folder or upload files to start.'}
+								/>
+							) : browser.view === 'grid' ? (
+								<FileGrid
+									browser={browser}
+									canMove={!readOnly && browser.capabilities.move}
+									folderDropTargetPath={folderDropTargetPath}
+									isItemReadOnly={isItemReadOnlyMark}
+									onItemMenu={openItemMenu}
+									inlineRenameError={inlineRenameError}
+									inlineRenameLabel={inlineRenameItem?.name ?? ''}
+									inlineRenameItem={inlineRenameItem}
+									inlineRenameValue={inlineRenameValue}
+									onDragStart={startItemDrag}
+									onDragEnd={endItemDrag}
+									onFolderDragOver={allowFolderDrop}
+									onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
+									onEmptyClick={() => browser.clearSelection()}
+									onInlineRenameCancel={cancelInlineRename}
+									onInlineRenameChange={(value) => {
+										setInlineRenameValue(value)
+										setInlineRenameError(null)
+									}}
+									onInlineRenameCommit={() => void commitInlineRename()}
+									onContextMenu={openItemContextMenu}
+									onOpenItem={openItemFromDoubleClick}
+									onSelectItem={selectItemWithEvent}
+									onTouchMenu={openItemTouchMenu}
+									narrow={isNarrow}
+									selectionMode={mobileSelection}
+									onToggleItem={browser.toggleSelection}
+									renderItemMeta={renderItemMeta}
+									rootLabel={rootLabel}
+									selectedPaths={browser.selectedPaths}
+								/>
+							) : (
+								<FileTable
+									browser={browser}
+									canMove={!readOnly && browser.capabilities.move}
+									folderDropTargetPath={folderDropTargetPath}
+									isItemReadOnly={isItemReadOnlyMark}
+									onItemMenu={openItemMenu}
+									inlineRenameError={inlineRenameError}
+									inlineRenameLabel={inlineRenameItem?.name ?? ''}
+									inlineRenameItem={inlineRenameItem}
+									inlineRenameValue={inlineRenameValue}
+									onDragStart={startItemDrag}
+									onDragEnd={endItemDrag}
+									onFolderDragOver={allowFolderDrop}
+									onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
+									onInlineRenameCancel={cancelInlineRename}
+									onInlineRenameChange={(value) => {
+										setInlineRenameValue(value)
+										setInlineRenameError(null)
+									}}
+									onInlineRenameCommit={() => void commitInlineRename()}
+									onContextMenu={openItemContextMenu}
+									onOpenItem={openItemFromDoubleClick}
+									onSelectItem={selectItemWithEvent}
+									onTouchMenu={openItemTouchMenu}
+									narrow={isNarrow}
+									selectionMode={mobileSelection}
+									onToggleItem={browser.toggleSelection}
+									renderItemMeta={renderItemMeta}
+									rootLabel={rootLabel}
+									selectedPaths={browser.selectedPaths}
+								/>
+							)}
+							{dropActive ? (
+								<div
+									className={`pointer-events-none absolute inset-4 z-10 flex flex-col items-center justify-center gap-3.5 rounded-[calc(var(--fb-radius)+6px)] border-2 border-dashed border-[var(--fb-accent)] bg-[color-mix(in_oklch,var(--fb-accent-soft)_92%,var(--fb-surface))] text-center backdrop-blur-[1px] ${SURFACE_MOTION}`}
+								>
+									<span className="grid size-[72px] place-items-center rounded-full bg-[var(--fb-accent)] text-[var(--fb-surface)]">
+										<Upload aria-hidden="true" className="size-8" strokeWidth={2} />
+									</span>
+									<span className={`text-[20px] font-bold ${ACCENT_INK}`}>Drop files to upload</span>
+									<span className="text-[var(--fb-font)] text-[var(--fb-muted)]">Folders keep their structure</span>
+								</div>
+							) : null}
+						</div>
+
+						<footer
+							className={`sticky bottom-0 flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-[var(--fb-gap)] border-t border-[var(--fb-border)] bg-[var(--fb-bg)] px-[var(--fb-pad)] py-1 text-[var(--fb-font-sm)] text-[var(--fb-muted)] ${isNarrow ? 'bg-[var(--fb-surface)] px-3' : ''} ${SURFACE_MOTION}`}
+						>
+							{mobileSelection ? (
+								<div
+									aria-label="Selection actions"
+									className="flex w-full flex-wrap items-center gap-[calc(var(--fb-gap)*2)]"
+									role="toolbar"
+								>
+									<button
+										className={commandButton(false)}
+										disabled={!selected}
+										onClick={() => setSelectionActionsOpen(true)}
+										type="button"
+									>
+										<MoreHorizontal aria-hidden="true" className="size-4" />
+										Actions
+									</button>
+								</div>
+							) : null}
+							<span>
+								{browser.filteredItems.length} items
+								{browser.selectedPaths.length ? ` · ${browser.selectedPaths.length} selected` : ''}
+							</span>
+							{isNarrow && !readOnly && !mobileSelection ? (
 								<button
-									aria-label="Browser options"
-									aria-expanded={toolbarOpen}
-									aria-haspopup="dialog"
-									className={toolButton(false)}
-									onClick={() => setToolbarOpen(true)}
+									aria-label="Upload"
+									className={`${primaryButton()} absolute bottom-[calc(var(--fb-gap)*14)] right-4 rounded-full px-5 shadow-[0_10px_24px_color-mix(in_oklch,var(--fb-accent)_35%,transparent)]`}
+									onClick={() => uploadInputRef.current?.click()}
 									type="button"
 								>
-									<MoreHorizontal aria-hidden="true" className="size-5" />
-								</button>
-							) : null}
-						</>
-					)}
-					{mobileSelection ? clipboardStatus : null}
-					{!mobileSelection ? (
-						<div className="flex w-full min-w-0 flex-wrap items-center gap-3">
-							<label className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1'}`}>
-								<Search
-									aria-hidden="true"
-									className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
-									strokeWidth={2}
-								/>
-								<input
-									aria-label="Search files"
-									className={`h-[var(--fb-control-h)] min-h-[var(--fb-control-h)] w-full min-w-0 rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-9 pr-3 text-[16px] text-[var(--fb-text)] outline-none placeholder:text-[var(--fb-muted)] focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] @min-[40rem]/fb:text-[var(--fb-font)] [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] [@media(pointer:coarse)]:text-[16px] ${CONTROL_MOTION}`}
-									onChange={(event) => browser.setSearchQuery(event.target.value)}
-									placeholder="Search this folder"
-									type="search"
-									value={browser.searchQuery}
-								/>
-							</label>
-							{!isNarrow ? secondaryControls : null}
-							{!isNarrow && !readOnly ? (
-								<button className={primaryButton()} onClick={() => uploadInputRef.current?.click()} type="button">
-									<Upload aria-hidden="true" className="size-4" />
+									<Upload aria-hidden="true" className="size-5" />
 									Upload
 								</button>
 							) : null}
-						</div>
-					) : null}
-				</header>
-
-				{!isNarrow ? selectionActions : null}
-				{!hasSidebar && !isNarrow && showDetailsPanel ? (
-					<div className="flex justify-end px-[var(--fb-pad)] pt-3">
-						<button className={barButton()} onClick={() => setDetailsOpen(true)} type="button">
-							<Info aria-hidden="true" className="size-4" />
-							Details
-						</button>
-					</div>
-				) : null}
-
-				{uploadRejections.length > 0 ? (
-					<UploadRejectionAlert onDismiss={() => setUploadRejections([])} rejections={uploadRejections} />
-				) : null}
-
-				<div
-					className={`relative min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--fb-bg)] px-[var(--fb-pad)] pb-[var(--fb-pad)] pt-1 ${isNarrow ? 'px-3 pt-3' : ''} ${isNarrow && !readOnly && !mobileSelection ? 'pb-[calc(var(--fb-gap)*20)]' : ''} ${SURFACE_MOTION}`}
-					onClick={clearSelectionFromEmptySurface}
-					onContextMenu={openEmptyContextMenu}
-				>
-					{browser.status === 'loading' && browser.items.length === 0 ? (
-						<SkeletonGrid rootLabel={rootLabel} />
-					) : browser.status === 'error' ? (
-						<StateMessage
-							icon={isAccessDeniedError(browser.error) ? 'lock' : 'error'}
-							title={getErrorState(browser.error).title}
-							value={getErrorState(browser.error).value}
-						/>
-					) : browser.filteredItems.length === 0 ? (
-						<StateMessage
-							icon="folder"
-							title={emptyState ? emptyState.title : 'This folder is empty'}
-							value={emptyState ? emptyState.description : 'Create a folder or upload files to start.'}
-						/>
-					) : browser.view === 'grid' ? (
-						<FileGrid
-							browser={browser}
-							canMove={!readOnly && browser.capabilities.move}
-							folderDropTargetPath={folderDropTargetPath}
-							inlineRenameError={inlineRenameError}
-							inlineRenameLabel={inlineRenameItem?.name ?? ''}
-							inlineRenameItem={inlineRenameItem}
-							inlineRenameValue={inlineRenameValue}
-							onDragStart={startItemDrag}
-							onDragEnd={endItemDrag}
-							onFolderDragOver={allowFolderDrop}
-							onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
-							onEmptyClick={() => browser.clearSelection()}
-							onInlineRenameCancel={cancelInlineRename}
-							onInlineRenameChange={(value) => {
-								setInlineRenameValue(value)
-								setInlineRenameError(null)
-							}}
-							onInlineRenameCommit={() => void commitInlineRename()}
-							onContextMenu={openItemContextMenu}
-							onOpenItem={openItemFromDoubleClick}
-							onSelectItem={selectItemWithEvent}
-							onTouchMenu={openItemTouchMenu}
-							narrow={isNarrow}
-							selectionMode={mobileSelection}
-							onToggleItem={browser.toggleSelection}
-							renderItemMeta={renderItemMeta}
-							rootLabel={rootLabel}
-							selectedPaths={browser.selectedPaths}
-						/>
-					) : (
-						<FileTable
-							browser={browser}
-							canMove={!readOnly && browser.capabilities.move}
-							folderDropTargetPath={folderDropTargetPath}
-							inlineRenameError={inlineRenameError}
-							inlineRenameLabel={inlineRenameItem?.name ?? ''}
-							inlineRenameItem={inlineRenameItem}
-							inlineRenameValue={inlineRenameValue}
-							onDragStart={startItemDrag}
-							onDragEnd={endItemDrag}
-							onFolderDragOver={allowFolderDrop}
-							onFolderDrop={(item, event) => void moveDraggedItemsToFolder(item, event)}
-							onInlineRenameCancel={cancelInlineRename}
-							onInlineRenameChange={(value) => {
-								setInlineRenameValue(value)
-								setInlineRenameError(null)
-							}}
-							onInlineRenameCommit={() => void commitInlineRename()}
-							onContextMenu={openItemContextMenu}
-							onOpenItem={openItemFromDoubleClick}
-							onSelectItem={selectItemWithEvent}
-							onTouchMenu={openItemTouchMenu}
-							narrow={isNarrow}
-							selectionMode={mobileSelection}
-							onToggleItem={browser.toggleSelection}
-							renderItemMeta={renderItemMeta}
-							rootLabel={rootLabel}
-							selectedPaths={browser.selectedPaths}
-						/>
-					)}
-					{dropActive ? (
-						<div
-							className={`pointer-events-none absolute inset-4 z-10 flex flex-col items-center justify-center gap-3.5 rounded-[calc(var(--fb-radius)+6px)] border-2 border-dashed border-[var(--fb-accent)] bg-[color-mix(in_oklch,var(--fb-accent-soft)_92%,var(--fb-surface))] text-center backdrop-blur-[1px] ${SURFACE_MOTION}`}
-						>
-							<span className="grid size-[72px] place-items-center rounded-full bg-[var(--fb-accent)] text-[var(--fb-surface)]">
-								<Upload aria-hidden="true" className="size-8" strokeWidth={2} />
-							</span>
-							<span className={`text-[20px] font-bold ${ACCENT_INK}`}>Drop files to upload</span>
-							<span className="text-[var(--fb-font)] text-[var(--fb-muted)]">Folders keep their structure</span>
-						</div>
-					) : null}
-				</div>
-
-				<footer
-					className={`sticky bottom-0 flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-[var(--fb-gap)] border-t border-[var(--fb-border)] bg-[var(--fb-bg)] px-[var(--fb-pad)] py-1 text-[var(--fb-font-sm)] text-[var(--fb-muted)] ${isNarrow ? 'bg-[var(--fb-surface)] px-3' : ''} ${SURFACE_MOTION}`}
-				>
-					{mobileSelection ? (
-						<div
-							aria-label="Selection actions"
-							className="flex w-full flex-wrap items-center gap-[calc(var(--fb-gap)*2)]"
-							role="toolbar"
-						>
-							<button
-								className={commandButton(false)}
-								disabled={!selected}
-								onClick={() => setSelectionActionsOpen(true)}
-								type="button"
-							>
-								<MoreHorizontal aria-hidden="true" className="size-4" />
-								Actions
-							</button>
-							{showDetailsPanel ? (
+							{browser.hasMore ? (
 								<button
-									className={commandButton(false)}
-									disabled={!selected}
-									onClick={() => setDetailsOpen(true)}
+									className={`inline-flex min-h-[var(--fb-bar-control-h)] items-center rounded-[calc(var(--fb-radius)-2px)] px-3 font-semibold ${ACCENT_INK} hover:bg-[var(--fb-accent-soft)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
+									onClick={() => void browser.loadMore()}
 									type="button"
 								>
-									<Info aria-hidden="true" className="size-4" />
-									Details
+									Load more
 								</button>
-							) : null}
-						</div>
-					) : null}
-					<span>
-						{browser.filteredItems.length} items
-						{browser.selectedPaths.length ? ` · ${browser.selectedPaths.length} selected` : ''}
-					</span>
-					{isNarrow && !readOnly && !mobileSelection ? (
-						<button
-							aria-label="Upload"
-							className={`${primaryButton()} absolute bottom-[calc(var(--fb-gap)*14)] right-4 rounded-full px-5 shadow-[0_10px_24px_color-mix(in_oklch,var(--fb-accent)_35%,transparent)]`}
-							onClick={() => uploadInputRef.current?.click()}
-							type="button"
-						>
-							<Upload aria-hidden="true" className="size-5" />
-							Upload
-						</button>
-					) : null}
-					{browser.hasMore ? (
-						<button
-							className={`inline-flex min-h-[var(--fb-bar-control-h)] items-center rounded-[calc(var(--fb-radius)-2px)] px-3 font-semibold ${ACCENT_INK} hover:bg-[var(--fb-accent-soft)] ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION}`}
-							onClick={() => void browser.loadMore()}
-							type="button"
-						>
-							Load more
-						</button>
-					) : (
-						<span />
-					)}
-				</footer>
+							) : (
+								<span />
+							)}
+						</footer>
+					</>
+				)}
 			</div>
 
-			{showDetailsPanel && hasSidebar ? detailsContent : null}
-			{showDetailsPanel && !hasSidebar && detailsOpen ? (
-				<ActionSheet label="Details" onClose={() => setDetailsOpen(false)}>
-					{detailsContent}
-				</ActionSheet>
-			) : null}
 			{isNarrow && toolbarOpen ? (
 				<ActionSheet label="Browser options" onClose={() => setToolbarOpen(false)}>
 					{secondaryControls}
@@ -1669,7 +1717,11 @@ export function FileBrowser<TMetadata = unknown>({
 					onPaste={() => void pasteClipboardInto(browser.currentPath)}
 					onRename={openRenameDialog}
 					onUpload={() => uploadInputRef.current?.click()}
+					canEdit={contextMenu.target === 'item' && Boolean(getEditor(contextMenu.item))}
+					onEdit={(item) => openEditor(item)}
+					onOpen={(item) => openItem(item)}
 					readOnly={readOnly}
+					selectionWritable={selectionWritable}
 				/>
 			) : null}
 
@@ -1857,85 +1909,6 @@ export function FileBrowser<TMetadata = unknown>({
 					queue={uploadConflictQueue}
 					resolutions={allowedUploadConflictResolutions}
 				/>
-			) : null}
-
-			{preview ? (
-				<ResponsiveDialog label={`Preview ${preview.item.name}`} narrow={isNarrow} onClose={() => setPreview(null)}>
-					<div
-						className={`flex w-[min(1120px,100%)] min-w-0 flex-col overflow-hidden rounded-[calc(var(--fb-radius)+6px)] bg-[var(--fb-surface)] shadow-[0_24px_60px_color-mix(in_oklch,var(--fb-text)_30%,transparent)] ${SURFACE_MOTION}`}
-					>
-						<div
-							className={`flex min-h-[60px] min-w-0 items-center gap-3 border-b border-[var(--fb-border)] py-2.5 pl-6 pr-4 ${isNarrow ? 'pl-4' : ''} ${SURFACE_MOTION}`}
-						>
-							<div className="flex min-w-0 flex-1 flex-col">
-								<span className="truncate text-[15px] font-bold">{preview.item.name}</span>
-								<span className="truncate text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
-									{previewPosition > 0 ? `${previewPosition} of ${previewFiles.length} · ` : ''}
-									{formatBytes(preview.item.size ?? 0)}
-									{preview.item.mimeType ? ` · ${preview.item.mimeType}` : ''}
-								</span>
-							</div>
-							<PreviewOriginalLink preview={preview} />
-							<button
-								aria-label="Close"
-								className={`${toolButton(false)} border-transparent bg-transparent text-[var(--fb-text)]`}
-								onClick={() => setPreview(null)}
-								type="button"
-							>
-								<XIcon aria-hidden="true" className="size-[18px]" />
-							</button>
-						</div>
-						<div
-							className={`flex min-h-[min(420px,55dvh)] min-w-0 items-center justify-center gap-6 bg-[var(--fb-bg)] p-6 ${isNarrow ? 'gap-2 p-3' : ''} ${SURFACE_MOTION}`}
-						>
-							<button
-								aria-label="Previous file"
-								className={`${previewNavButton} ${isNarrow ? 'size-10' : ''}`}
-								disabled={previewFiles.length <= 1}
-								onClick={() => showAdjacentPreview(-1)}
-								type="button"
-							>
-								<ChevronLeft aria-hidden="true" className="size-5" />
-							</button>
-							<div className="flex min-w-0 flex-1 justify-center">
-								{(preview.item.mimeType?.startsWith('image/') && preview.url) || preview.item.thumbnailUrl ? (
-									<img
-										alt={preview.item.name}
-										className={`max-h-[min(560px,60dvh)] max-w-full rounded-[var(--fb-radius)] object-contain ${SURFACE_MOTION}`}
-										src={preview.url ?? preview.item.thumbnailUrl}
-									/>
-								) : (
-									<div className="flex min-w-0 max-w-full flex-col items-center gap-3 text-center">
-										<span className="block w-[72px]">
-											<FileTypeTile item={preview.item} size="md" />
-										</span>
-										<div className="text-[15px] font-bold">{preview.item.name}</div>
-										<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">
-											{preview.item.mimeType ?? 'File'}
-										</div>
-										{preview.status === 'loading' ? (
-											<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]">Loading preview</div>
-										) : null}
-										{preview.status === 'error' ? (
-											<div className="text-[calc(var(--fb-font)-1px)] text-[var(--fb-danger)]">
-												{preview.error ?? 'Could not load preview'}
-											</div>
-										) : null}
-									</div>
-								)}
-							</div>
-							<button
-								aria-label="Next file"
-								className={`${previewNavButton} ${isNarrow ? 'size-10' : ''}`}
-								disabled={previewFiles.length <= 1}
-								onClick={() => showAdjacentPreview(1)}
-								type="button"
-							>
-								<ChevronRight aria-hidden="true" className="size-5" />
-							</button>
-						</div>
-					</div>
-				</ResponsiveDialog>
 			) : null}
 		</section>
 	)
@@ -2127,6 +2100,7 @@ function FileGrid<TMetadata>({
 	inlineRenameLabel,
 	inlineRenameItem,
 	inlineRenameValue,
+	isItemReadOnly,
 	selectedPaths,
 	onContextMenu,
 	onDragEnd,
@@ -2137,6 +2111,7 @@ function FileGrid<TMetadata>({
 	onInlineRenameCancel,
 	onInlineRenameChange,
 	onInlineRenameCommit,
+	onItemMenu,
 	onOpenItem,
 	onSelectItem,
 	onTouchMenu,
@@ -2153,6 +2128,7 @@ function FileGrid<TMetadata>({
 	inlineRenameLabel: string
 	inlineRenameItem: FileNode<TMetadata> | null
 	inlineRenameValue: string
+	isItemReadOnly: (item: FileNode<TMetadata>) => boolean
 	selectedPaths: string[]
 	onContextMenu: (item: FileNode<TMetadata>, event: MouseEvent) => void
 	onDragEnd: () => void
@@ -2163,6 +2139,7 @@ function FileGrid<TMetadata>({
 	onInlineRenameCancel: () => void
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
+	onItemMenu: (item: FileNode<TMetadata>, anchor: HTMLElement) => void
 	onOpenItem: (item: FileNode<TMetadata>) => void
 	onSelectItem: (path: string, event: MouseEvent) => void
 	onTouchMenu: (item: FileNode<TMetadata>) => void
@@ -2218,7 +2195,9 @@ function FileGrid<TMetadata>({
 			>
 				{browser.filteredItems.map((item) => (
 					<FileCard
-						canMove={canMove}
+						canMove={canMove && !isItemReadOnly(item)}
+						onMenu={(anchor) => onItemMenu(item, anchor)}
+						readOnlyItem={isItemReadOnly(item)}
 						dropTarget={folderDropTargetPath === item.path}
 						item={item}
 						key={item.path}
@@ -2268,6 +2247,8 @@ function FileCard<TMetadata>({
 	onInlineRenameCancel,
 	onInlineRenameChange,
 	onInlineRenameCommit,
+	onMenu,
+	readOnlyItem,
 	onTouchMenu,
 	narrow,
 	selectionMode,
@@ -2292,6 +2273,8 @@ function FileCard<TMetadata>({
 	onInlineRenameCancel: () => void
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
+	onMenu: (anchor: HTMLElement) => void
+	readOnlyItem: boolean
 	onTouchMenu: () => void
 	narrow: boolean
 	selectionMode: boolean
@@ -2327,8 +2310,9 @@ function FileCard<TMetadata>({
 		>
 			{selectionMode ? (
 				<button
+					aria-checked={selected}
 					aria-label={`Select ${item.name}`}
-					aria-pressed={selected}
+					role="checkbox"
 					className="absolute left-0 top-0 z-10 grid size-[calc(var(--fb-gap)*11)] place-items-center"
 					data-fb-touch-control
 					onClick={(event) => {
@@ -2344,6 +2328,15 @@ function FileCard<TMetadata>({
 					<SelectionMark selected={selected} />
 				</span>
 			)}
+			<span className="absolute right-[calc(var(--fb-card-pad)+4px)] top-[calc(var(--fb-card-pad)+4px)] z-[1]">
+				<ItemMenuButton
+					className="bg-[color-mix(in_oklch,var(--fb-surface)_85%,transparent)]"
+					item={item}
+					narrow={narrow}
+					onOpen={(_, anchor) => onMenu(anchor)}
+					selected={selected}
+				/>
+			</span>
 			<FileTypeTile item={item} size="md" />
 			{isRenaming ? (
 				<InlineRenameInput
@@ -2367,6 +2360,11 @@ function FileCard<TMetadata>({
 					{item.name}
 				</button>
 			)}
+			{readOnlyItem ? (
+				<span className="-mt-1 flex items-center gap-1 text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
+					<Lock aria-hidden="true" className="size-3.5" /> Read-only
+				</span>
+			) : null}
 			<div className="flex min-w-0 gap-1 truncate text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
 				<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
 				{formatShortDate(item.modifiedAt) ? <span>· {formatShortDate(item.modifiedAt)}</span> : null}
@@ -2456,6 +2454,7 @@ function FileTable<TMetadata>({
 	inlineRenameLabel,
 	inlineRenameItem,
 	inlineRenameValue,
+	isItemReadOnly,
 	selectedPaths,
 	onContextMenu,
 	onDragEnd,
@@ -2465,6 +2464,7 @@ function FileTable<TMetadata>({
 	onInlineRenameCancel,
 	onInlineRenameChange,
 	onInlineRenameCommit,
+	onItemMenu,
 	onOpenItem,
 	onSelectItem,
 	onTouchMenu,
@@ -2481,6 +2481,7 @@ function FileTable<TMetadata>({
 	inlineRenameLabel: string
 	inlineRenameItem: FileNode<TMetadata> | null
 	inlineRenameValue: string
+	isItemReadOnly: (item: FileNode<TMetadata>) => boolean
 	selectedPaths: string[]
 	onContextMenu: (item: FileNode<TMetadata>, event: MouseEvent) => void
 	onDragEnd: () => void
@@ -2490,6 +2491,7 @@ function FileTable<TMetadata>({
 	onInlineRenameCancel: () => void
 	onInlineRenameChange: (value: string) => void
 	onInlineRenameCommit: () => void
+	onItemMenu: (item: FileNode<TMetadata>, anchor: HTMLElement) => void
 	onOpenItem: (item: FileNode<TMetadata>) => void
 	onSelectItem: (path: string, event: MouseEvent) => void
 	onTouchMenu: (item: FileNode<TMetadata>) => void
@@ -2499,10 +2501,44 @@ function FileTable<TMetadata>({
 	renderItemMeta?: (item: FileNode<TMetadata>, context: { view: FileBrowserView }) => ReactNode
 	rootLabel: string
 }) {
-	const disclosureSize = getDisclosureSize(narrow)
-	const headCell = `h-10 border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] text-[var(--fb-font-sm)] font-semibold text-[var(--fb-muted)]`
+	const showCheckboxes = !narrow || selectionMode
+	const selectedCount = browser.filteredItems.filter((item) => selectedPaths.includes(item.path)).length
+	const allSelected = selectedCount > 0 && selectedCount === browser.filteredItems.length
+	const headCell = `h-10 border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] text-[var(--fb-font-sm)] font-semibold uppercase tracking-[0.06em] text-[var(--fb-muted)]`
 	const bodyCell =
 		'h-[var(--fb-row-h)] border-b border-[var(--fb-border)] px-[var(--fb-cell-x)] py-[calc(var(--fb-cell-y)/2)]'
+	const checkboxCell = 'w-[calc(var(--fb-cell-x)*2+18px)] pr-0'
+	const sortHeader = (label: string, sortBy: 'name' | 'modifiedAt' | 'size', className = '') => {
+		const active = browser.sortBy === sortBy
+		return (
+			<th
+				aria-sort={active ? (browser.sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+				className={`${headCell} ${className}`}
+				scope="col"
+			>
+				<button
+					className={`inline-flex items-center gap-1 rounded-[4px] uppercase tracking-[inherit] hover:text-[var(--fb-text)] ${active ? 'text-[var(--fb-text)]' : ''} ${FOCUS_RING} ${CONTROL_MOTION}`}
+					onClick={() => {
+						if (active) browser.setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+						else {
+							browser.setSortBy(sortBy)
+							browser.setSortDirection('asc')
+						}
+					}}
+					type="button"
+				>
+					{label}
+					{active ? (
+						<ChevronDown
+							aria-hidden="true"
+							className={`size-3.5 ${browser.sortDirection === 'desc' ? 'rotate-180' : ''}`}
+							strokeWidth={2.5}
+						/>
+					) : null}
+				</button>
+			</th>
+		)
+	}
 	return (
 		<table
 			aria-label={rootLabel}
@@ -2510,24 +2546,43 @@ function FileTable<TMetadata>({
 		>
 			<thead>
 				<tr>
-					<th className={headCell}>Name</th>
-					{!narrow ? <th className={`${headCell} w-[140px] text-right`}>Size</th> : null}
-					{!narrow ? <th className={`${headCell} w-[160px] text-right`}>Modified</th> : null}
+					{showCheckboxes ? (
+						<th className={`${headCell} ${checkboxCell}`} scope="col">
+							<button
+								aria-checked={allSelected ? true : selectedCount > 0 ? 'mixed' : false}
+								aria-label={allSelected ? 'Select none' : 'Select all items'}
+								className={`grid place-items-center rounded-[5px] ${FOCUS_RING}`}
+								onClick={() => (allSelected ? browser.clearSelection() : browser.selectAllLoaded())}
+								role="checkbox"
+								type="button"
+							>
+								<SelectionMark
+									mixed={!allSelected && selectedCount > 0}
+									selected={allSelected}
+									visibleOnHover={false}
+								/>
+							</button>
+						</th>
+					) : null}
+					{sortHeader('Name', 'name')}
+					{!narrow ? sortHeader('Size', 'size', 'w-[140px] text-right') : null}
+					{!narrow ? sortHeader('Modified', 'modifiedAt', 'w-[160px] text-right') : null}
+					<th className={`${headCell} w-[calc(var(--fb-control-h)+var(--fb-cell-x))]`} scope="col">
+						<span className="sr-only">Actions</span>
+					</th>
 				</tr>
 			</thead>
 			<tbody>
-				{browser.listRows.map((row) => {
-					if (row.type === 'status') {
-						return <FolderStatusRow browser={browser} key={`${row.parentPath}::status`} narrow={narrow} row={row} />
-					}
-					const { item, depth, expanded } = row
+				{browser.filteredItems.map((item) => {
 					const isSelected = selectedPaths.includes(item.path)
 					const isDropTarget = folderDropTargetPath === item.path
+					const itemReadOnly = isItemReadOnly(item)
 					return (
 						<TouchRow
 							aria-selected={isSelected}
 							data-fb-drop-target={isDropTarget ? 'true' : undefined}
 							data-fb-path={item.path}
+							data-fb-read-only={itemReadOnly ? 'true' : undefined}
 							className={`group outline-none focus-visible:bg-[var(--fb-surface-2)] ${CONTROL_MOTION} ${
 								isDropTarget
 									? 'bg-[var(--fb-accent-soft)] ring-2 ring-inset ring-[var(--fb-accent)]'
@@ -2535,7 +2590,7 @@ function FileTable<TMetadata>({
 										? 'bg-[color-mix(in_oklch,var(--fb-accent-soft)_70%,var(--fb-surface))] shadow-[inset_3px_0_0_var(--fb-accent)]'
 										: 'hover:bg-[color-mix(in_oklch,var(--fb-surface-2)_60%,var(--fb-surface))]'
 							}`}
-							draggable={canMove && !narrow}
+							draggable={canMove && !narrow && !itemReadOnly}
 							onLongPress={() => onTouchMenu(item)}
 							key={item.path}
 							onClick={(event) => onSelectItem(item.path, event)}
@@ -2547,47 +2602,27 @@ function FileTable<TMetadata>({
 							onDoubleClick={() => onOpenItem(item)}
 							tabIndex={0}
 						>
-							<td className={bodyCell} style={depth > 0 ? { paddingInlineStart: treeIndent(depth) } : undefined}>
+							{showCheckboxes ? (
+								<td className={`${bodyCell} ${checkboxCell}`}>
+									<button
+										aria-checked={isSelected}
+										aria-label={`Select ${item.name}`}
+										className={`grid place-items-center rounded-[5px] ${selectionMode ? '-ml-3 size-[calc(var(--fb-gap)*11)]' : ''} ${FOCUS_RING}`}
+										data-fb-touch-control
+										onClick={(event) => {
+											event.stopPropagation()
+											onToggleItem(item.path)
+										}}
+										onDoubleClick={(event) => event.stopPropagation()}
+										role="checkbox"
+										type="button"
+									>
+										<SelectionMark selected={isSelected} visibleOnHover={false} />
+									</button>
+								</td>
+							) : null}
+							<td className={bodyCell}>
 								<div className="flex min-w-0 items-center gap-2.5">
-									{selectionMode ? (
-										<button
-											aria-label={`Select ${item.name}`}
-											aria-pressed={isSelected}
-											className="-ml-3 grid size-[calc(var(--fb-gap)*11)] shrink-0 place-items-center"
-											data-fb-touch-control
-											onClick={(event) => {
-												event.stopPropagation()
-												onToggleItem(item.path)
-											}}
-											type="button"
-										>
-											<SelectionMark selected={isSelected} visibleOnHover={false} />
-										</button>
-									) : !narrow ? (
-										<SelectionMark selected={isSelected} />
-									) : null}
-									{item.kind === 'folder' ? (
-										<button
-											aria-expanded={expanded}
-											aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.name}`}
-											className={`grid shrink-0 place-items-center rounded-[calc(var(--fb-radius)-4px)] text-[var(--fb-muted)] hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)] ${FOCUS_RING} ${disclosureSize} ${CONTROL_MOTION}`}
-											data-fb-touch-control
-											onClick={(event) => {
-												event.stopPropagation()
-												browser.toggleFolder(item.path)
-											}}
-											onDoubleClick={(event) => event.stopPropagation()}
-											type="button"
-										>
-											<ChevronRight
-												aria-hidden="true"
-												className={`size-3.5 transition-transform duration-150 ease-out motion-reduce:transition-none ${expanded ? 'rotate-90' : ''}`}
-												strokeWidth={2.5}
-											/>
-										</button>
-									) : (
-										<span aria-hidden="true" className={`shrink-0 ${disclosureSize}`} />
-									)}
 									<FileTypeTile item={item} size="sm" />
 									<div className="min-w-0 flex-1">
 										{inlineRenameItem?.path === item.path ? (
@@ -2601,22 +2636,25 @@ function FileTable<TMetadata>({
 												value={inlineRenameValue}
 											/>
 										) : (
-											<button
-												className={`block max-w-full truncate rounded-[4px] text-left text-[var(--fb-font)] font-medium outline-none [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*6)]' : ''} ${CONTROL_MOTION}`}
-												onClick={(event) => {
-													event.stopPropagation()
-													onSelectItem(item.path, event)
-												}}
-												type="button"
-											>
-												{item.name}
-											</button>
+											<span className="flex min-w-0 items-center gap-1.5">
+												<button
+													className={`block min-w-0 truncate rounded-[4px] text-left text-[var(--fb-font)] font-medium outline-none [@media(pointer:coarse)]:min-h-[calc(var(--fb-gap)*11)] ${narrow ? 'min-h-[calc(var(--fb-gap)*6)]' : ''} ${CONTROL_MOTION}`}
+													onClick={(event) => {
+														event.stopPropagation()
+														onSelectItem(item.path, event)
+													}}
+													type="button"
+												>
+													{item.name}
+												</button>
+												{itemReadOnly ? <ReadOnlyMark /> : null}
+											</span>
 										)}
 										<ItemMeta item={item} renderItemMeta={renderItemMeta} view="list" />
 										{narrow ? (
 											<div className="flex flex-wrap gap-x-3 text-[var(--fb-font-sm)] text-[var(--fb-muted)]">
 												<span>{item.kind === 'folder' ? 'Folder' : formatBytes(item.size ?? 0)}</span>
-												{item.modifiedAt ? <span>{new Date(item.modifiedAt).toLocaleDateString()}</span> : null}
+												{item.modifiedAt ? <span>{formatModified(item.modifiedAt)}</span> : null}
 											</div>
 										) : null}
 									</div>
@@ -2629,9 +2667,12 @@ function FileTable<TMetadata>({
 							) : null}
 							{!narrow ? (
 								<td className={`${bodyCell} text-right text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]`}>
-									{item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString() : '—'}
+									{item.modifiedAt ? formatModified(item.modifiedAt) : '—'}
 								</td>
 							) : null}
+							<td className={`${bodyCell} pl-0 text-right`}>
+								<ItemMenuButton item={item} narrow={narrow} onOpen={onItemMenu} selected={isSelected} />
+							</td>
 						</TouchRow>
 					)
 				})}
@@ -2640,59 +2681,46 @@ function FileTable<TMetadata>({
 	)
 }
 
-function treeIndent(depth: number) {
-	return `calc(var(--fb-cell-x) + 18px * ${depth})`
-}
-
-function getDisclosureSize(narrow: boolean) {
-	return `size-5 [@media(pointer:coarse)]:size-[calc(var(--fb-gap)*11)] ${narrow ? 'size-[calc(var(--fb-gap)*11)]' : ''}`
-}
-
-function FolderStatusRow<TMetadata>({
-	browser,
+function ItemMenuButton<TMetadata>({
+	item,
 	narrow,
-	row
+	onOpen,
+	selected,
+	className = ''
 }: {
-	browser: BrowserLike<TMetadata>
+	item: FileNode<TMetadata>
 	narrow: boolean
-	row: Extract<FileBrowserListRow<TMetadata>, { type: 'status' }>
+	onOpen: (item: FileNode<TMetadata>, anchor: HTMLElement) => void
+	selected: boolean
+	className?: string
 }) {
-	const linkButton = `rounded-[4px] font-semibold ${ACCENT_INK} hover:underline ${FOCUS_RING} ${CONTROL_MOTION}`
 	return (
-		<tr data-fb-status-for={row.parentPath}>
-			<td
-				className="h-11 border-b border-[var(--fb-border)] bg-[color-mix(in_oklch,var(--fb-surface-2)_40%,var(--fb-surface))] px-[var(--fb-cell-x)] text-[calc(var(--fb-font)-1px)] text-[var(--fb-muted)]"
-				colSpan={narrow ? 1 : 3}
-				style={{ paddingInlineStart: treeIndent(row.depth) }}
-			>
-				<div className="flex min-w-0 items-center gap-2">
-					{/* Same width as the item-row chevron so the status lines up with the child icons. */}
-					<span aria-hidden="true" className={`shrink-0 ${getDisclosureSize(narrow)}`} />
-					{row.status === 'loading' ? (
-						<span className="inline-flex items-center gap-2" role="status">
-							<span
-								aria-hidden="true"
-								className="size-3.5 animate-spin rounded-full border-2 border-[var(--fb-accent-soft)] border-t-[var(--fb-accent)] motion-reduce:animate-none"
-							/>
-							Loading…
-						</span>
-					) : row.status === 'empty' ? (
-						<span>Empty folder</span>
-					) : row.status === 'more' ? (
-						<button className={linkButton} onClick={() => browser.loadMoreFolder(row.parentPath)} type="button">
-							Load more
-						</button>
-					) : (
-						<span className="text-[var(--fb-danger)]">
-							{row.error?.message ?? 'Could not load folder'}{' '}
-							<button className={linkButton} onClick={() => browser.expandFolder(row.parentPath)} type="button">
-								Retry
-							</button>
-						</span>
-					)}
-				</div>
-			</td>
-		</tr>
+		<button
+			aria-haspopup="menu"
+			aria-label={`More actions for ${item.name}`}
+			className={`inline-grid size-[var(--fb-control-h)] place-items-center rounded-[calc(var(--fb-radius)-2px)] text-[var(--fb-muted)] hover:bg-[var(--fb-surface-2)] hover:text-[var(--fb-text)] ${
+				narrow || selected
+					? ''
+					: 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100'
+			} ${FOCUS_RING} ${TOUCH_CONTROL} ${CONTROL_MOTION} ${className}`}
+			data-fb-touch-control
+			onClick={(event) => {
+				event.stopPropagation()
+				onOpen(item, event.currentTarget)
+			}}
+			onDoubleClick={(event) => event.stopPropagation()}
+			type="button"
+		>
+			<MoreHorizontal aria-hidden="true" className="size-4" />
+		</button>
+	)
+}
+
+function ReadOnlyMark() {
+	return (
+		<span className="inline-flex shrink-0 text-[var(--fb-muted)]" role="img" aria-label="Read-only" title="Read-only">
+			<Lock aria-hidden="true" className="size-3.5" />
+		</span>
 	)
 }
 
@@ -2716,7 +2744,11 @@ function ContextMenu<TMetadata>({
 	onPaste,
 	onRename,
 	onUpload,
-	readOnly
+	canEdit,
+	onEdit,
+	onOpen,
+	readOnly,
+	selectionWritable
 }: {
 	browser: BrowserLike<TMetadata>
 	canDownload: boolean
@@ -2732,9 +2764,15 @@ function ContextMenu<TMetadata>({
 	onPaste: () => void
 	onRename: (item?: FileNode<TMetadata>) => void
 	onUpload: () => void
+	canEdit: boolean
+	onEdit: (item: FileNode<TMetadata>) => void
+	onOpen: (item: FileNode<TMetadata>) => void
 	readOnly: boolean
+	selectionWritable: boolean
 }) {
 	const isItemMenu = menu.target === 'item'
+	const single =
+		menu.target === 'item' && !(browser.selectedPaths.includes(menu.item.path) && browser.selectedPaths.length > 1)
 	const isSheet = menu.mode === 'sheet'
 	const menuRef = useRef<HTMLDivElement>(null)
 	const [position, setPosition] = useState({ left: menu.x, top: menu.y })
@@ -2772,7 +2810,7 @@ function ContextMenu<TMetadata>({
 			className={`flex flex-col bg-[var(--fb-surface)] text-[var(--fb-font)] text-[var(--fb-text)] ${SURFACE_MOTION} ${
 				isSheet
 					? 'w-full'
-					: 'fixed z-[60] max-h-[calc(100dvh-var(--fb-gap)*4)] min-w-[200px] max-w-[calc(100%-var(--fb-gap)*4)] overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] p-1.5 shadow-[0_12px_32px_color-mix(in_oklch,var(--fb-text)_12%,transparent)]'
+					: 'fixed z-[60] max-h-[calc(100dvh-var(--fb-gap)*4)] min-w-[200px] max-w-[calc(100%-var(--fb-gap)*4)] overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] p-1.5 shadow-[var(--fb-shadow,0_12px_32px_color-mix(in_oklch,black_35%,transparent))]'
 			}`}
 			data-fb-menu={isSheet ? 'sheet' : 'context'}
 			role="menu"
@@ -2798,16 +2836,24 @@ function ContextMenu<TMetadata>({
 				buttons[next]?.focus()
 			}}
 		>
-			{isItemMenu && !readOnly && browser.capabilities.rename ? (
+			{isItemMenu && single ? (
+				<ContextMenuButton onClick={() => run(() => onOpen(menu.item))}>
+					{menu.item.kind === 'folder' ? 'Open' : 'Preview'}
+				</ContextMenuButton>
+			) : null}
+			{isItemMenu && single && canEdit ? (
+				<ContextMenuButton onClick={() => run(() => onEdit(menu.item))}>Edit</ContextMenuButton>
+			) : null}
+			{isItemMenu && single && selectionWritable && browser.capabilities.rename ? (
 				<ContextMenuButton onClick={() => run(() => onRename(menu.item))}>Rename</ContextMenuButton>
 			) : null}
-			{isItemMenu && !readOnly && browser.capabilities.move ? (
+			{isItemMenu && selectionWritable && browser.capabilities.move ? (
 				<ContextMenuButton onClick={() => run(onMove)}>Move</ContextMenuButton>
 			) : null}
 			{isItemMenu && !readOnly && browser.capabilities.copy ? (
 				<ContextMenuButton onClick={() => run(onCopy)}>Copy</ContextMenuButton>
 			) : null}
-			{isItemMenu && !readOnly && browser.capabilities.move ? (
+			{isItemMenu && selectionWritable && browser.capabilities.move ? (
 				<ContextMenuButton onClick={() => run(onCut)}>Cut</ContextMenuButton>
 			) : null}
 			{isItemMenu ? (
@@ -2818,8 +2864,8 @@ function ContextMenu<TMetadata>({
 							: 'Copy path'}
 					</ContextMenuButton>
 					{canDownload ? <ContextMenuButton onClick={() => run(onDownload)}>Download</ContextMenuButton> : null}
-					{!readOnly ? <div aria-hidden="true" className="mx-1.5 my-1 h-px bg-[var(--fb-border)]" /> : null}
-					{!readOnly ? (
+					{selectionWritable ? <div aria-hidden="true" className="mx-1.5 my-1 h-px bg-[var(--fb-border)]" /> : null}
+					{selectionWritable ? (
 						<ContextMenuButton
 							danger
 							onClick={() => {
@@ -3294,7 +3340,7 @@ function Breadcrumbs({
 								{ancestorsOpen && !narrow ? (
 									<div
 										aria-label="Hidden folders"
-										className="absolute left-0 top-[calc(100%+6px)] z-50 flex max-h-[min(360px,60dvh)] w-max min-w-[200px] max-w-[min(420px,80vw)] flex-col overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-1.5 shadow-[0_12px_32px_color-mix(in_oklch,var(--fb-text)_12%,transparent)]"
+										className="absolute left-0 top-[calc(100%+6px)] z-50 flex max-h-[min(360px,60dvh)] w-max min-w-[200px] max-w-[min(420px,80vw)] flex-col overflow-y-auto rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-1.5 shadow-[var(--fb-shadow,0_12px_32px_color-mix(in_oklch,black_35%,transparent))]"
 										onKeyDown={(event) => {
 											if (event.key === 'Escape' || event.key === 'Tab') {
 												event.stopPropagation()
@@ -3432,152 +3478,6 @@ function getFallbackBreadcrumbs(crumbs: BreadcrumbCrumb[], narrow: boolean): Vis
 	return crumbs.length <= 4
 		? getFittedBreadcrumbs(crumbs, { lead: crumbs.length, tail: 0 })
 		: getFittedBreadcrumbs(crumbs, { lead: 2, tail: 2 })
-}
-
-function DetailsPanel<TMetadata>({
-	canDownload,
-	item,
-	onCopyPath,
-	onDownload,
-	renderDetailsContent,
-	selectedCount,
-	totalBytes,
-	sheet
-}: {
-	canDownload: boolean
-	item: FileNode<TMetadata> | null
-	onCopyPath: () => void
-	onDownload: () => void
-	renderDetailsContent?: (item: FileNode<TMetadata>, defaultContent: ReactNode) => ReactNode
-	selectedCount: number
-	totalBytes: number
-	sheet: boolean
-}) {
-	const panelClass = `flex min-w-0 max-w-full shrink-0 flex-col gap-4 bg-[var(--fb-surface)] [overflow-wrap:anywhere] [&_*]:max-w-full ${SURFACE_MOTION} ${
-		sheet ? 'w-full' : 'w-[var(--fb-panel-w)] border-l border-[var(--fb-border)] p-[var(--fb-panel-pad)]'
-	}`
-	const eyebrow = sheet ? null : (
-		<div className="text-[calc(var(--fb-font)-1px)] font-semibold text-[var(--fb-muted)]">Details</div>
-	)
-	const fieldList = 'm-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2.5 text-[calc(var(--fb-font)-1px)]'
-	const panelButton = `${commandButton(false)} w-full`
-	if (!item) {
-		return (
-			<aside aria-label="Details" className={panelClass}>
-				{eyebrow}
-				<div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-					<div
-						className={`grid h-[150px] w-full place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-surface-2)] text-[var(--fb-muted)] ${SURFACE_MOTION}`}
-					>
-						<Info aria-hidden="true" className="size-10" strokeWidth={1.5} />
-					</div>
-					<h2 className="m-0 text-[var(--fb-font)] font-semibold">No item selected</h2>
-				</div>
-			</aside>
-		)
-	}
-
-	if (selectedCount > 1) {
-		return (
-			<aside aria-label="Details" className={panelClass}>
-				{eyebrow}
-				<div
-					className={`grid h-[150px] place-items-center rounded-[var(--fb-radius)] bg-[var(--fb-accent-soft)] ${ACCENT_INK} ${SURFACE_MOTION}`}
-				>
-					<CopyIcon aria-hidden="true" className="size-10" strokeWidth={1.5} />
-				</div>
-				<h2 className="m-0 text-[16px] font-bold">{formatItemCount(selectedCount)} selected</h2>
-				<dl className={fieldList}>
-					<dt className="text-[var(--fb-muted)]">Total size</dt>
-					<dd className="m-0 font-medium">{formatBytes(totalBytes)}</dd>
-				</dl>
-				<div className="flex flex-col gap-2">
-					{canDownload ? (
-						<button
-							aria-label={`Download ${formatItemCount(selectedCount)}`}
-							className={panelButton}
-							onClick={onDownload}
-							type="button"
-						>
-							<Download aria-hidden="true" className="size-4" />
-							Download
-						</button>
-					) : null}
-					<button
-						aria-label={`Copy ${formatItemCount(selectedCount)} paths`}
-						className={panelButton}
-						onClick={onCopyPath}
-						type="button"
-					>
-						<CopyIcon aria-hidden="true" className="size-4" />
-						Copy paths
-					</button>
-				</div>
-			</aside>
-		)
-	}
-
-	const defaultContent = (
-		<>
-			<FileTypeTile item={item} size="lg" />
-			<h2 className="m-0 truncate text-[16px] font-bold">{item.name}</h2>
-			<dl className={fieldList}>
-				{item.kind === 'file' ? (
-					<>
-						<dt className="text-[var(--fb-muted)]">Size</dt>
-						<dd className="m-0 font-medium">{formatBytes(item.size ?? 0)}</dd>
-					</>
-				) : null}
-				{item.modifiedAt ? (
-					<>
-						<dt className="text-[var(--fb-muted)]">Modified</dt>
-						<dd className="m-0 font-medium">{new Date(item.modifiedAt).toLocaleDateString()}</dd>
-					</>
-				) : null}
-				<dt className="text-[var(--fb-muted)]">Type</dt>
-				<dd className="m-0 font-medium">{item.kind === 'file' && item.mimeType ? item.mimeType : item.kind}</dd>
-				<dt className="text-[var(--fb-muted)]">Path</dt>
-				<dd className="m-0 font-medium [overflow-wrap:anywhere]">{item.path}</dd>
-			</dl>
-			<div className="flex flex-col gap-2">
-				{canDownload ? (
-					<button aria-label={`Download ${item.name}`} className={panelButton} onClick={onDownload} type="button">
-						<Download aria-hidden="true" className="size-4" />
-						Download
-					</button>
-				) : null}
-				<button aria-label={`Copy path of ${item.name}`} className={panelButton} onClick={onCopyPath} type="button">
-					<CopyIcon aria-hidden="true" className="size-4" />
-					Copy path
-				</button>
-			</div>
-		</>
-	)
-
-	return (
-		<aside aria-label="Details" className={panelClass}>
-			{eyebrow}
-			{renderDetailsContent ? renderDetailsContent(item, defaultContent) : defaultContent}
-		</aside>
-	)
-}
-
-function PreviewOriginalLink<TMetadata>({ preview }: { preview: PreviewState<TMetadata> }) {
-	if (!preview.url) {
-		return null
-	}
-
-	return (
-		<a
-			aria-label={`Open original ${preview.item.name}`}
-			className={`${primaryButton()} no-underline`}
-			href={preview.url}
-			rel="noreferrer"
-			target="_blank"
-		>
-			Open original
-		</a>
-	)
 }
 
 function SkeletonGrid({ rootLabel }: { rootLabel: string }) {
@@ -3799,17 +3699,6 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
 	return target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)
 }
 
-function formatBytes(bytes: number) {
-	if (bytes < 1024) {
-		return `${bytes} B`
-	}
-	const kib = bytes / 1024
-	if (kib < 1024) {
-		return `${kib.toFixed(1)} KB`
-	}
-	return `${(kib / 1024).toFixed(1)} MB`
-}
-
 function formatItemCount(count: number) {
 	return `${count} ${count === 1 ? 'item' : 'items'}`
 }
@@ -3898,10 +3787,17 @@ function dangerButton() {
 }
 
 // Native select arrows sit flush against the edge and differ per browser, so the chevron is drawn by us.
-function SelectField(props: React.ComponentProps<'select'>) {
+function SelectField({ icon: Icon, ...props }: React.ComponentProps<'select'> & { icon?: LucideIcon }) {
 	return (
 		<span className="relative inline-flex min-w-0 max-w-full shrink-0">
-			<select {...props} className={selectInput()} />
+			{Icon ? (
+				<Icon
+					aria-hidden="true"
+					className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
+					strokeWidth={2}
+				/>
+			) : null}
+			<select {...props} className={selectInput(Boolean(Icon))} />
 			<ChevronDown
 				aria-hidden="true"
 				className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fb-muted)]"
@@ -3911,8 +3807,8 @@ function SelectField(props: React.ComponentProps<'select'>) {
 	)
 }
 
-function selectInput() {
-	return `h-[var(--fb-control-h)] min-w-0 max-w-full appearance-none rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] pl-3 pr-9 text-[var(--fb-font)] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] [@media(pointer:coarse)]:text-[16px] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
+function selectInput(withIcon = false) {
+	return `h-[var(--fb-control-h)] min-w-0 max-w-full appearance-none rounded-[var(--fb-radius)] border border-[var(--fb-border)] bg-[var(--fb-surface)] ${withIcon ? 'pl-9' : 'pl-3'} pr-9 text-[var(--fb-font)] font-medium text-[var(--fb-text)] outline-none focus:border-[var(--fb-accent)] focus:ring-[3px] focus:ring-[color-mix(in_oklch,var(--fb-accent)_15%,transparent)] [@media(pointer:coarse)]:text-[16px] ${TOUCH_CONTROL} ${CONTROL_MOTION}`
 }
 
 function textInput(invalid = false) {
@@ -3940,64 +3836,92 @@ const FILE_TONE_CLASSES: Record<FileTone, string> = {
 	neutral: 'bg-[var(--fb-surface-2)] text-[var(--fb-muted)]'
 }
 
-const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz'])
-
-function getFileExtension(name: string) {
-	const dot = name.lastIndexOf('.')
-	return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
-}
-
 function getFileTone<TMetadata>(item: FileNode<TMetadata>): FileTone {
-	if (item.kind === 'folder') return 'folder'
-	const mime = item.mimeType ?? ''
-	const extension = getFileExtension(item.name)
-	if (mime === 'application/pdf' || extension === 'pdf') return 'danger'
-	if (mime.startsWith('image/')) return 'ok'
-	if (mime.startsWith('video/') || mime.startsWith('audio/')) return 'accent'
-	if (ARCHIVE_EXTENSIONS.has(extension) || /zip|compressed|x-tar/.test(mime)) return 'warn'
-	return 'neutral'
-}
-
-function getFileBadge<TMetadata>(item: FileNode<TMetadata>) {
-	return getFileExtension(item.name).slice(0, 4).toUpperCase() || 'FILE'
+	switch (getFileCategory(item)) {
+		case 'folder':
+			return 'folder'
+		case 'pdf':
+			return 'danger'
+		case 'image':
+		case 'spreadsheet':
+			return 'ok'
+		case 'video':
+		case 'audio':
+		case 'presentation':
+			return 'accent'
+		case 'archive':
+			return 'warn'
+		default:
+			return 'neutral'
+	}
 }
 
 function FileTypeTile<TMetadata>({ item, size }: { item: FileNode<TMetadata>; size: 'sm' | 'md' | 'lg' }) {
 	const box =
 		size === 'sm'
-			? 'size-8 rounded-[calc(var(--fb-radius)-2px)] text-[9px]'
+			? 'size-8 rounded-[calc(var(--fb-radius)-2px)]'
 			: size === 'md'
-				? 'h-[var(--fb-thumb-h)] w-full rounded-[calc(var(--fb-radius)-2px)] text-[13px]'
-				: 'h-[150px] w-full rounded-[var(--fb-radius)] text-[15px]'
-	const icon = size === 'sm' ? 'size-4' : 'size-10'
+				? 'h-[var(--fb-thumb-h)] w-full rounded-[calc(var(--fb-radius)-2px)]'
+				: 'h-[150px] w-full rounded-[var(--fb-radius)]'
+	const icon = size === 'sm' ? 'size-4' : size === 'md' ? 'size-8' : 'size-10'
+	const Icon = getFileIcon(item)
 	return (
 		<span
 			aria-hidden="true"
-			className={`grid shrink-0 place-items-center overflow-hidden font-bold tracking-[0.06em] ${box} ${FILE_TONE_CLASSES[getFileTone(item)]} ${CONTROL_MOTION}`}
+			className={`grid shrink-0 place-items-center overflow-hidden ${box} ${FILE_TONE_CLASSES[getFileTone(item)]} ${CONTROL_MOTION}`}
+			data-fb-file-category={getFileCategory(item)}
 		>
 			{item.kind === 'folder' ? (
 				<Folder className={`${icon} fill-current`} strokeWidth={0} />
 			) : item.thumbnailUrl && size !== 'sm' ? (
 				<img alt="" className="size-full object-cover" draggable={false} loading="lazy" src={item.thumbnailUrl} />
 			) : (
-				getFileBadge(item)
+				<Icon className={icon} strokeWidth={1.75} />
 			)}
 		</span>
 	)
 }
 
-function SelectionMark({ selected, visibleOnHover = true }: { selected: boolean; visibleOnHover?: boolean }) {
+function SelectionMark({
+	mixed = false,
+	selected,
+	visibleOnHover = true
+}: {
+	mixed?: boolean
+	selected: boolean
+	visibleOnHover?: boolean
+}) {
 	return (
 		<span
 			aria-hidden="true"
 			className={`grid size-[18px] shrink-0 place-items-center rounded-[5px] text-[var(--fb-surface)] ${CONTROL_MOTION} ${
-				selected
+				selected || mixed
 					? 'bg-[var(--fb-accent)]'
 					: `border-[1.5px] border-[var(--fb-border-strong)] bg-[var(--fb-surface)] ${visibleOnHover ? 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100' : ''}`
 			}`}
 		>
-			{selected ? <Check className="size-3" strokeWidth={3.5} /> : null}
+			{selected ? (
+				<Check className="size-3" strokeWidth={3.5} />
+			) : mixed ? (
+				<Minus className="size-3" strokeWidth={3.5} />
+			) : null}
 		</span>
+	)
+}
+
+function formatModified(value: string) {
+	const date = new Date(value)
+	if (Number.isNaN(date.getTime())) return '—'
+	const now = new Date()
+	const startOfDay = (target: Date) => new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime()
+	const dayDelta = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000)
+	if (dayDelta === 0) return `Today, ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+	if (dayDelta === 1) return 'Yesterday'
+	return date.toLocaleDateString(
+		undefined,
+		date.getFullYear() === now.getFullYear()
+			? { month: 'short', day: 'numeric' }
+			: { month: 'short', day: 'numeric', year: 'numeric' }
 	)
 }
 

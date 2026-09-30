@@ -21,14 +21,19 @@ S3, Cloudflare R2, Supabase Storage, an in-memory store, or any backend you impl
   rename affordance disappears; no config flags to keep in sync.
 - **Resumable uploads** — session-scoped transfer manager with multipart support, a floating transfer
   widget, progress, and a resume prompt after a hard refresh.
-- **Grid and list views**, search, filter, sort, drag-and-drop move, cut/copy/paste, multi-select,
-  keyboard shortcuts, file preview, and a details panel.
+- **List and grid views** with row checkboxes, sortable columns, a per-item actions menu, file-type
+  icons, search, filter, sort, drag-and-drop move, cut/copy/paste, multi-select, and keyboard shortcuts.
+- **Files open in place** — double-click or Enter opens a file inside the browser in Preview, with an
+  Edit switch when an editor matches, Save/Cancel, a size counter, and conflict and unsaved-changes guards.
+- **Preview and edit plugins** — browser-native previews for images, video, audio, PDF, HTML, and
+  text, plus opt-in plugins for code, Markdown, CSV, XLSX, and DOCX. Configure them or bring your own.
+- **Per-item read-only** — lock individual files or folders with `isItemReadOnly`.
 - **Bulk download** — uses the adapter's `bulkDownloadUrl` when present, otherwise builds a client-side
   zip from signed URLs.
 - **Upload policies** — reject files by MIME type, size, remaining quota, or a custom validator before
   they enqueue.
 - **Host extension points** — controlled path and search state, opaque item ids, typed metadata,
-  custom item/details rendering, conflict policy, and custom empty states.
+  custom item metadata rendering, conflict policy, and custom empty states.
 - **Themeable** with CSS variables that inherit your Tailwind v4 / design-system tokens. No global CSS
   shipped.
 - **Read-only mode**, comfortable/compact density, ESM-only, fully typed.
@@ -41,9 +46,8 @@ multi-selection, or choose **Browser options → Select items**, then use the vi
 bottom action bar. Search stays visible; filter, sort, view, and folder creation live in Browser
 options. Upload remains available above the footer.
 
-Details use the sidebar at 64rem and above, and an on-demand sheet at smaller widths. On narrow
-layouts, select an item and choose **Details**. `showDetailsPanel={false}` hides both presentations.
-Custom item and details renderers should also use fluid widths.
+Selection actions live in the toolbar above the list (and a bottom action bar on narrow layouts);
+there is no details sidebar. Custom item renderers should use fluid widths.
 
 Dialogs fit the available viewport height. Narrow menus and conflicts use bottom sheets. The
 provider's transfer widget responds to the viewport, starts collapsed on phones, and expands into a
@@ -112,12 +116,6 @@ declare const adapter: FileBrowserAdapter<IndexingMetadata>;
   renderItemMeta={(item) =>
     item.metadata ? <IndexingStatus status={item.metadata.indexingStatus} /> : null
   }
-  renderDetailsContent={(item, defaultContent) => (
-    <>
-      {defaultContent}
-      {item.metadata ? <IndexingDetails metadata={item.metadata} /> : null}
-    </>
-  )}
   uploadConflictResolutions={["keep-both", "skip"]}
   allowClientZipFallback={false}
 />;
@@ -228,7 +226,6 @@ or `bulkDownloadUrl`, those controls are hidden. Recursive folder drops are reje
 | `onSearchQueryChange` | `(query) => void` | None | Receives user-driven search changes. |
 | `density` | `"comfortable" \| "compact"` | `"comfortable"` | Row/tile density. |
 | `readOnly` | `boolean` | `false` | Hides all mutating affordances. |
-| `showDetailsPanel` | `boolean` | `true` | Toggles details, shown as a sidebar or responsive sheet. |
 | `uploadPolicy` | `FileBrowserUploadPolicy` | None | Reject files before they enqueue. |
 | `uploadConflictResolutions` | `FileBrowserUploadConflictResolution[]` | all | Allowed conflict-dialog actions. |
 | `allowClientZipFallback` | `boolean` | `true` | Allows browser-built ZIPs when no server ZIP exists. |
@@ -236,7 +233,9 @@ or `bulkDownloadUrl`, those controls are hidden. Recursive folder drops are reje
 | `rootLabel` | `string` | `"Files"` | Root breadcrumb and navigation label. |
 | `emptyState` | `{ title: ReactNode; description?: ReactNode }` | built in | Empty-folder content. |
 | `renderItemMeta` | `(item, { view }) => ReactNode` | None | Host metadata below grid/list item names. |
-| `renderDetailsContent` | `(item, defaultContent) => ReactNode` | None | Extends single-item details. |
+| `isItemReadOnly` | `(item) => boolean` | None | Locks items: no rename, move, cut, delete, edit, or drops into a locked folder. |
+| `previewers` | `FileBrowserPreviewer[]` | `defaultFileBrowserPreviewers` | Inline preview renderers; first match wins. `[]` disables. |
+| `editors` | `FileBrowserEditor[]` | `defaultFileBrowserEditors` | In-place editors; first match wins. `[]` disables editing. |
 | `className` | `string` | None | Class name merged onto the root browser surface. |
 
 ### `<FileBrowserProvider>` props
@@ -268,11 +267,6 @@ own UI. The `FileBrowser` component is a consumer of this hook.
 It also accepts controlled `path`, `searchQuery`, and their change callbacks. `navigate(path)` emits a
 `programmatic` path-change source, while `open(folder)` emits the complete target item.
 
-For tree-style list views, `listRows` flattens expanded folders into `{ type: 'item', item, depth,
-expanded }` and `{ type: 'status', parentPath, depth, status }` rows. Drive expansion with
-`expandFolder`, `collapseFolder`, `toggleFolder`, and `loadMoreFolder`. `visibleItems` lists items in
-on-screen order for the active view and backs range selection and keyboard movement.
-
 ### Entry points
 
 | Import | Contents |
@@ -282,7 +276,68 @@ on-screen order for the active view and backs range selection and keyboard movem
 | `@harryy/react-file-browser/adapters/s3` | `S3FileBrowserAdapter`. |
 | `@harryy/react-file-browser/adapters/r2` | `R2FileBrowserAdapter`. |
 | `@harryy/react-file-browser/adapters/supabase` | `SupabaseFileBrowserAdapter`. |
+| `@harryy/react-file-browser/plugins/code` | `codeEditor`, `codePreviewer`, `jsonEditor`, `markupEditor`, `getCodeLanguage`. |
+| `@harryy/react-file-browser/plugins/markdown` | `markdownEditor`, `markdownPreviewer`, `markdownToHtml`, `htmlToMarkdown`. |
+| `@harryy/react-file-browser/plugins/csv` | `csvEditor`, `csvPreviewer`. |
+| `@harryy/react-file-browser/plugins/xlsx` | `xlsxEditor`, `xlsxPreviewer`. |
+| `@harryy/react-file-browser/plugins/docx` | `docxPreviewer`. |
 | `@harryy/react-file-browser/theme` | `FILE_BROWSER_THEME_CONTRACT`, `getFileBrowserDensityAttributes`. |
+
+## Previews and editing
+
+Out of the box the browser previews images, video, audio, PDF (the browser's own viewer), HTML (in a
+sandboxed iframe that cannot run scripts), and plain text, and edits text files in a plain text area.
+Everything else is opt-in: each plugin is its own import, and its npm package is an optional peer
+dependency you install only if you use it.
+
+| Plugin | Install | Does | Approx. gzip |
+| --- | --- | --- | --- |
+| `plugins/code` | `codejar prismjs` | Syntax-highlighted code editing and preview; HTML and SVG editing with a live preview beside the source (`markupEditor`); JSON editing with Format and an invalid-JSON save guard (`jsonEditor`) | 21 KB |
+| `plugins/markdown` | `react-markdown squire-rte marked turndown dompurify` | Rendered Markdown preview (raw HTML ignored) and a WYSIWYG Markdown editor with a small toolbar (`markdownEditor`) | 92 KB |
+| `plugins/csv` | `papaparse jspreadsheet-ce` | Spreadsheet-style CSV/TSV editing and preview | 136 KB |
+| `plugins/xlsx` | `read-excel-file write-excel-file jspreadsheet-ce` | Spreadsheet-style XLSX editing and preview, one tab per sheet | 162 KB |
+| `plugins/docx` | `docx-preview` | Word document preview | 50 KB |
+
+Pass plugins ahead of the defaults; the first match wins:
+
+```tsx
+import { FileBrowser, defaultFileBrowserEditors, defaultFileBrowserPreviewers } from '@harryy/react-file-browser'
+import { codeEditor, codePreviewer, jsonEditor, markupEditor } from '@harryy/react-file-browser/plugins/code'
+import { csvEditor, csvPreviewer } from '@harryy/react-file-browser/plugins/csv'
+import { markdownEditor, markdownPreviewer } from '@harryy/react-file-browser/plugins/markdown'
+// Once, if you use the csv or xlsx plugin:
+import 'jspreadsheet-ce/dist/jspreadsheet.css'
+import 'jspreadsheet-ce/dist/jspreadsheet.themes.css'
+import 'jsuites/dist/jsuites.css'
+
+<FileBrowser
+  adapter={adapter}
+  previewers={[markdownPreviewer, csvPreviewer, codePreviewer, ...defaultFileBrowserPreviewers]}
+  editors={[csvEditor, markdownEditor, markupEditor, jsonEditor, codeEditor, ...defaultFileBrowserEditors]}
+/>
+```
+
+Notes:
+
+- The csv and xlsx plugins use jspreadsheet-ce. Editing supports typing, Ctrl/Cmd+C, X, V and Z, and a
+  right-click menu that inserts or deletes rows and columns in place. Comments, sorting, column
+  renaming, and export are turned off. Previews are read-only with no menu. The plugin restyles the
+  sheet, tabs, and menu with scoped `--fb-*` rules, so it follows your light and dark themes; the host
+  still imports jspreadsheet's layout CSS (above).
+- CSV saves keep typed formulas as text (`=A1*2`); XLSX saves write their computed values.
+- Saving an XLSX writes cell values only. Formatting, formulas, charts, and images are lost, and the
+  editor says so beside Save.
+- Previewers and editors that read file contents `fetch` the adapter's signed URL, so that URL must
+  allow cross-origin reads from your app.
+- The editor checks `adapter.stat` before saving. If the file's `etag` (or `modifiedAt`) changed since
+  it was opened, it offers Reload or Keep my version instead of overwriting. Saves go through
+  `adapter.upload` with `onConflict: 'replace'`.
+- The Markdown editor is visual: it converts Markdown to HTML (marked) to edit and back (turndown) to
+  save, so saving may normalize formatting such as list markers and spacing.
+  It cleans loaded and pasted markup with DOMPurify.
+- Editors may set `validate(text)`; a returned message shows above the editor and disables Save.
+- Write your own with the `FileBrowserPreviewer` and `FileBrowserEditor` types: `match(item)`,
+  optional `read: 'text' | 'binary'`, `maxBytes`, and a `component`.
 
 ## Styling
 
@@ -304,7 +359,7 @@ documents every token and its default.
 ## UI behavior
 
 - `readOnly` hides upload, create, rename, move, copy, and delete affordances while keeping browsing,
-  preview, details, and download available.
+  preview and download available.
 - `uploadPolicy` can reject files before enqueueing transfers by MIME type, extension, max file size,
   remaining quota, maximum files per batch, or a custom validator. A batch over `maxFilesPerBatch` is
   rejected before folders are created or transfers enqueue. Other rejections render as an alert and
@@ -318,12 +373,16 @@ documents every token and its default.
 - Move-capable adapters enable the destination tree picker, Cut/Paste, and drag onto folders.
 - Keyboard shortcuts include Enter preview/open, F2 rename, Delete confirm, Cmd/Ctrl+A selection, and
   Cmd/Ctrl+C/X/V for adapter-gated copy, cut, and paste.
-- List view doubles as a tree, like an OS outline view: the chevron (or Right arrow) expands a folder
-  inline, Left arrow collapses it or jumps to the parent, and double-click or Enter still opens the
-  folder. Children load lazily through `adapter.list` with per-folder "Load more" pagination. Nested
-  items support selection, preview, rename, delete, move, and paste like top-level items. Collapsing a
-  folder, switching to grid view, or navigating clears selections that would become hidden. Search
-  narrows the current folder only; the kind filter and sort apply at every level.
+- The list view has row checkboxes with a select-all header, sortable Name/Size/Modified columns, and a
+  three-dot actions menu per row (also on grid tiles).
+- Opening a file (double-click, Enter, or Preview in the menu) replaces the list with the file: the
+  breadcrumb extends to the file name, Previous/Next step through the folder's files, and Back or Escape
+  returns to the list. It opens in Preview; Edit (or Edit in the menu) switches to the matching editor.
+  Leaving with unsaved edits asks to discard them first.
+- `isItemReadOnly(item)` locks individual items. Locked items show a lock icon;
+  rename, move, cut, delete, and edit are hidden for them (and for any selection that includes one),
+  F2 and Delete do nothing, they cannot be dragged, and a locked folder refuses dropped items. Download,
+  copy path, and preview stay available. Items inside a locked folder are judged on their own.
 
 ### Transfer persistence and concurrency
 

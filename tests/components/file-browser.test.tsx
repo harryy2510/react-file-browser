@@ -85,6 +85,9 @@ async function adapterWithFiles(capabilities = {}) {
 	return adapter
 }
 
+const selectedItem = () => document.querySelector('[data-fb-path][aria-selected="true"]')
+const openFileView = () => document.querySelector('[data-fb-file-view]')
+
 describe('FileBrowser', () => {
 	test('renders toolbar, grid/list toggle, selection details, and preview modal', async () => {
 		const user = userEvent.setup()
@@ -103,10 +106,10 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('table', { name: 'Files' })).toBeInTheDocument()
 
 		await user.click(screen.getByText('quarterly-report.pdf'))
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('quarterly-report.pdf')
+		expect(selectedItem()).toHaveTextContent('quarterly-report.pdf')
 
 		await user.keyboard('{Enter}')
-		expect(screen.getByRole('dialog', { name: /Preview/ })).toHaveTextContent('quarterly-report.pdf')
+		expect(openFileView()).toHaveTextContent('quarterly-report.pdf')
 	})
 
 	test('opens in the list view unless another view is asked for', async () => {
@@ -137,16 +140,16 @@ describe('FileBrowser', () => {
 		await screen.findByText('hero-banner.jpg')
 
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('No item selected')
+		expect(selectedItem()).toBeNull()
 
 		await user.click(screen.getByText('hero-banner.jpg'))
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('1 selected')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
+		expect(selectedItem()).toHaveTextContent('hero-banner.jpg')
 
 		await user.click(screen.getByRole('grid', { name: 'Files' }))
 
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('No item selected')
+		expect(selectedItem()).toBeNull()
 	})
 
 	test('applies subtle motion to core browser chrome', async () => {
@@ -159,7 +162,6 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('motion-reduce:transition-none')
 		expect(screen.getByText('hero-banner.jpg').closest('article')?.className).toContain('duration-200')
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' }).className).toContain('duration-200')
-		expect(screen.getByRole('complementary', { name: 'Details' }).className).toContain('duration-200')
 	})
 
 	test('applies compact density tokens that differ from comfortable', async () => {
@@ -198,7 +200,7 @@ describe('FileBrowser', () => {
 			})
 
 			expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
-			expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('No item selected')
+			expect(selectedItem()).toBeNull()
 		} finally {
 			vi.useRealTimers()
 		}
@@ -223,6 +225,8 @@ describe('FileBrowser', () => {
 				vi.advanceTimersByTime(221)
 			})
 
+			expect(openFileView()).toHaveAttribute('data-fb-file-view', 'preview')
+			fireEvent.click(screen.getByRole('button', { name: 'Back to folder' }))
 			expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('1 selected')
 		} finally {
 			vi.useRealTimers()
@@ -249,29 +253,11 @@ describe('FileBrowser', () => {
 			fireEvent.click(fileButton, { detail: 2 })
 			fireEvent.doubleClick(fileButton)
 
-			expect(screen.queryByRole('dialog', { name: /Preview/ })).not.toBeInTheDocument()
+			expect(openFileView()).not.toBeInTheDocument()
 			expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
 		} finally {
 			vi.useRealTimers()
 		}
-	})
-
-	test('centers the empty details panel state', async () => {
-		const adapter = await adapterWithFiles()
-
-		render(<FileBrowser adapter={adapter} />)
-		await screen.findByText('hero-banner.jpg')
-
-		expect(screen.getByText('No item selected').parentElement).toHaveClass('text-center')
-	})
-
-	test('can hide the details panel', async () => {
-		const adapter = await adapterWithFiles()
-
-		render(<FileBrowser adapter={adapter} showDetailsPanel={false} />)
-		await screen.findByText('hero-banner.jpg')
-
-		expect(screen.queryByRole('complementary', { name: 'Details' })).not.toBeInTheDocument()
 	})
 
 	test('offers explicit select all and select none controls', async () => {
@@ -327,7 +313,7 @@ describe('FileBrowser', () => {
 		expect(screen.getByRole('status')).toHaveTextContent('Files ready. 3 items. 1 selected.')
 	})
 
-	test('downloads the selected item from the details panel', async () => {
+	test('downloads the selected item from the selection toolbar', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 		const bulkDownloadUrl = vi.fn(() =>
@@ -353,7 +339,9 @@ describe('FileBrowser', () => {
 		await screen.findByText('hero-banner.jpg')
 
 		await user.click(screen.getByText('hero-banner.jpg'))
-		await user.click(screen.getByRole('button', { name: 'Download hero-banner.jpg' }))
+		await user.click(
+			within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByRole('button', { name: 'Download' })
+		)
 
 		await waitFor(() =>
 			expect(manager.getSnapshot().downloads.at(0)).toMatchObject({
@@ -376,11 +364,11 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByText('hero-banner.jpg'))
 		await user.keyboard('{Enter}')
 
-		expect(screen.getByRole('dialog', { name: /Preview/ })).toHaveTextContent('hero-banner.jpg')
+		expect(openFileView()).toHaveTextContent('hero-banner.jpg')
 		await user.click(screen.getByRole('button', { name: 'Next file' }))
-		expect(screen.getByRole('dialog', { name: /Preview/ })).toHaveTextContent('quarterly-report.pdf')
+		expect(openFileView()).toHaveTextContent('quarterly-report.pdf')
 		await user.click(screen.getByRole('button', { name: 'Previous file' }))
-		expect(screen.getByRole('dialog', { name: /Preview/ })).toHaveTextContent('hero-banner.jpg')
+		expect(openFileView()).toHaveTextContent('hero-banner.jpg')
 	})
 
 	test('loads a signed URL for file previews', async () => {
@@ -397,7 +385,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByText('hero-banner.jpg'))
 		await user.keyboard('{Enter}')
 
-		const dialog = screen.getByRole('dialog', { name: /Preview/ })
+		const dialog = openFileView() as HTMLElement
 		expect(
 			await within(dialog).findByRole('link', {
 				name: 'Open original hero-banner.jpg'
@@ -681,9 +669,6 @@ describe('FileBrowser', () => {
 			expect(screen.getByRole('textbox', { name: 'Rename hero-banner.jpg' })).toHaveValue('quarterly-report.pdf')
 		)
 		expect(screen.getByRole('gridcell', { selected: true })).toHaveAttribute('data-fb-path', '/hero-banner.jpg')
-		await waitFor(() =>
-			expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
-		)
 	})
 
 	test('moves item focus and selection with keyboard arrows', async () => {
@@ -694,15 +679,15 @@ describe('FileBrowser', () => {
 		await screen.findByText('hero-banner.jpg')
 
 		await user.keyboard('{ArrowDown}')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('assets')
+		expect(selectedItem()).toHaveTextContent('assets')
 		await waitFor(() => expect(screen.getByRole('gridcell', { name: /^assets Folder/ })).toHaveFocus())
 
 		await user.keyboard('{ArrowDown}')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
+		expect(selectedItem()).toHaveTextContent('hero-banner.jpg')
 		await waitFor(() => expect(screen.getByRole('gridcell', { name: /^hero-banner\.jpg 15 B/ })).toHaveFocus())
 
 		await user.keyboard('{End}')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('quarterly-report.pdf')
+		expect(selectedItem()).toHaveTextContent('quarterly-report.pdf')
 	})
 
 	test('moves list-row focus with keyboard arrows', async () => {
@@ -715,122 +700,8 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByRole('button', { name: 'List view' }))
 		await user.keyboard('{ArrowDown}')
 
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('assets')
+		expect(selectedItem()).toHaveTextContent('assets')
 		await waitFor(() => expect(screen.getByRole('row', { name: /assets/ })).toHaveFocus())
-	})
-
-	test('expands folders inline in list view and still opens them on double-click', async () => {
-		const user = userEvent.setup()
-		const adapter = await adapterWithFiles()
-		await adapter.createFolder?.('/assets/archive')
-		await adapter.upload('/assets/logo.png', textFile('logo.png'))
-		const onPathChange = vi.fn()
-
-		render(<FileBrowser adapter={adapter} onPathChange={onPathChange} />)
-		await screen.findByText('hero-banner.jpg')
-		await user.click(screen.getByRole('button', { name: 'List view' }))
-
-		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
-		expect(await screen.findByRole('button', { name: 'logo.png' })).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Collapse assets' })).toHaveAttribute('aria-expanded', 'true')
-		expect(onPathChange).not.toHaveBeenCalled()
-
-		await user.click(screen.getByRole('button', { name: 'Expand archive' }))
-		expect(await screen.findByText('Empty folder')).toBeInTheDocument()
-
-		await user.click(screen.getByRole('button', { name: 'logo.png' }))
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('logo.png')
-
-		await user.click(screen.getByRole('button', { name: 'Collapse assets' }))
-		expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument()
-		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('0 selected')
-
-		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
-		await user.dblClick(await screen.findByRole('button', { name: 'archive' }))
-		expect(onPathChange).toHaveBeenCalledWith('/assets/archive', expect.objectContaining({ source: 'item' }))
-	})
-
-	test('expands and collapses list-view folders with arrow keys', async () => {
-		const user = userEvent.setup()
-		const adapter = await adapterWithFiles()
-		await adapter.upload('/assets/logo.png', textFile('logo.png'))
-
-		render(<FileBrowser adapter={adapter} />)
-		await screen.findByText('hero-banner.jpg')
-		await user.click(screen.getByRole('button', { name: 'List view' }))
-
-		await user.keyboard('{ArrowDown}')
-		await user.keyboard('{ArrowRight}')
-		expect(await screen.findByRole('button', { name: 'logo.png' })).toBeInTheDocument()
-
-		await user.keyboard('{ArrowDown}')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('logo.png')
-
-		await user.keyboard('{ArrowLeft}')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('assets')
-
-		await user.keyboard('{ArrowLeft}')
-		expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument()
-	})
-
-	test('removes deleted nested items from an expanded list-view folder', async () => {
-		const user = userEvent.setup()
-		const adapter = await adapterWithFiles()
-		await adapter.upload('/assets/logo.png', textFile('logo.png'))
-
-		render(<FileBrowser adapter={adapter} />)
-		await screen.findByText('hero-banner.jpg')
-		await user.click(screen.getByRole('button', { name: 'List view' }))
-		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
-		await user.click(await screen.findByRole('button', { name: 'logo.png' }))
-
-		await user.keyboard('{Delete}')
-		await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete selected' }))
-
-		await waitFor(() => expect(screen.queryByRole('button', { name: 'logo.png' })).not.toBeInTheDocument())
-		expect((await adapter.list('/assets')).items).toHaveLength(0)
-		expect(screen.getByText('Empty folder')).toBeInTheDocument()
-	})
-
-	test('drops nested selections when switching back to grid view', async () => {
-		const user = userEvent.setup()
-		const adapter = await adapterWithFiles()
-		await adapter.upload('/assets/logo.png', textFile('logo.png'))
-
-		render(<FileBrowser adapter={adapter} />)
-		await screen.findByText('hero-banner.jpg')
-		await user.click(screen.getByRole('button', { name: 'List view' }))
-		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
-		await user.click(await screen.findByRole('button', { name: 'logo.png' }))
-		await user.keyboard('{Meta>}')
-		await user.click(screen.getByRole('button', { name: 'hero-banner.jpg' }))
-		await user.keyboard('{/Meta}')
-		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('2 selected')
-
-		await user.click(screen.getByRole('button', { name: 'Grid view' }))
-
-		expect(screen.getByRole('toolbar', { name: 'Selection actions' })).toHaveTextContent('1 selected')
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('hero-banner.jpg')
-	})
-
-	test('ignores dropping nested items onto their own parent folder', async () => {
-		const user = userEvent.setup()
-		const adapter = await adapterWithFiles()
-		await adapter.upload('/assets/logo.png', textFile('logo.png'))
-		const move = vi.spyOn(adapter, 'move')
-		const dataTransfer = itemMoveDataTransfer()
-		const { container } = render(<FileBrowser adapter={adapter} />)
-		await screen.findByText('hero-banner.jpg')
-		await user.click(screen.getByRole('button', { name: 'List view' }))
-		await user.click(screen.getByRole('button', { name: 'Expand assets' }))
-
-		fireEvent.dragStart(await screen.findByRole('button', { name: 'logo.png' }), { dataTransfer })
-		fireEvent.dragOver(screen.getByRole('button', { name: 'assets' }), { dataTransfer })
-		expect(container.querySelector('[data-fb-path="/assets"]')).not.toHaveAttribute('data-fb-drop-target')
-
-		fireEvent.drop(screen.getByRole('button', { name: 'assets' }), { dataTransfer })
-		expect(move).not.toHaveBeenCalled()
-		expect(screen.getByRole('button', { name: 'logo.png' })).toBeInTheDocument()
 	})
 
 	test('moves selected items through a destination picker', async () => {
@@ -1025,21 +896,21 @@ describe('FileBrowser', () => {
 		expect(await navigator.clipboard.readText()).toBe('/quarterly-report.pdf')
 	})
 
-	test('copies the selected item path from the details panel', async () => {
+	test('copies the selected item path from the actions menu', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 
 		render(<FileBrowser adapter={adapter} />)
 		await screen.findByText('hero-banner.jpg')
 
-		await user.click(screen.getByText('hero-banner.jpg'))
-		await user.click(screen.getByRole('button', { name: 'Copy path of hero-banner.jpg' }))
+		await user.click(screen.getByRole('button', { name: 'More actions for hero-banner.jpg' }))
+		await user.click(screen.getByRole('menuitem', { name: 'Copy path' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg')
 		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied path')
 	})
 
-	test('shows a multi-selection summary in the details panel', async () => {
+	test('copies every selected path from the actions menu', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
 
@@ -1051,11 +922,8 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByText('quarterly-report.pdf'))
 		await user.keyboard('{/Meta}')
 
-		const details = screen.getByRole('complementary', { name: 'Details' })
-		expect(details).toHaveTextContent('2 items selected')
-		expect(details).toHaveTextContent('Total size')
-
-		await user.click(within(details).getByRole('button', { name: 'Copy 2 items paths' }))
+		fireEvent.contextMenu(screen.getByText('quarterly-report.pdf'))
+		await user.click(screen.getByRole('menuitem', { name: 'Copy paths' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg, /quarterly-report.pdf')
 		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 2 paths')
@@ -1370,12 +1238,6 @@ describe('FileBrowser', () => {
 			<FileBrowser<FiveStarMetadata>
 				adapter={adapter}
 				initialView="grid"
-				renderDetailsContent={(item, defaultContent) => (
-					<>
-						{defaultContent}
-						<div>Details status: {item.metadata?.ragStatus}</div>
-					</>
-				)}
 				renderItemMeta={(item, { view }) => (
 					<span>
 						{item.id}:{item.metadata?.ragStatus}:{view}
@@ -1389,9 +1251,7 @@ describe('FileBrowser', () => {
 		expect(screen.getByText('file-uuid:indexed:list')).toBeInTheDocument()
 
 		await user.click(screen.getByRole('button', { name: 'handbook.pdf' }))
-		const details = screen.getByRole('complementary', { name: 'Details' })
-		expect(details).toHaveTextContent('/handbook.pdf')
-		expect(details).toHaveTextContent('Details status: indexed')
+		expect(selectedItem()).toHaveTextContent('handbook.pdf')
 	})
 
 	test('emits opaque item identity and breadcrumb sources for controlled navigation', async () => {
@@ -1489,17 +1349,14 @@ describe('FileBrowser', () => {
 
 		await user.click(screen.getByRole('button', { name: 'assets' }))
 		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).queryByText('Download')).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Download assets' })).not.toBeInTheDocument()
 
 		await user.click(screen.getByRole('button', { name: 'hero-banner.jpg' }))
 		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByText('Download')).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Download hero-banner.jpg' })).toBeInTheDocument()
 
 		await user.keyboard('{Meta>}')
 		await user.click(screen.getByRole('button', { name: 'quarterly-report.pdf' }))
 		await user.keyboard('{/Meta}')
 		expect(within(screen.getByRole('toolbar', { name: 'Selection actions' })).queryByText('Download')).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Download 2 items' })).not.toBeInTheDocument()
 	})
 
 	test('passes the client-zip policy to server-backed bulk downloads', async () => {
@@ -1515,7 +1372,9 @@ describe('FileBrowser', () => {
 		)
 		await screen.findByText('hero-banner.jpg')
 		await user.click(screen.getByRole('button', { name: 'assets' }))
-		await user.click(screen.getByRole('button', { name: 'Download assets' }))
+		await user.click(
+			within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByRole('button', { name: 'Download' })
+		)
 
 		expect(prepareBulkDownload).toHaveBeenCalledWith(
 			expect.objectContaining({ allowClientZipFallback: false, paths: ['/assets'] })

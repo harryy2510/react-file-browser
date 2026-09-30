@@ -25,9 +25,7 @@ export {
 	useFileBrowser,
 	type FileBrowserCapabilities,
 	type FileBrowserClipboard,
-	type FileBrowserFolderChildren,
 	type FileBrowserKindFilter,
-	type FileBrowserListRow,
 	type FileBrowserPathChangeContext,
 	type FileBrowserStatus,
 	type FileBrowserUploadConflictResolution,
@@ -37,6 +35,30 @@ export {
 	type UseFileBrowserResult
 } from './core/use-file-browser'
 export { FileBrowser, type FileBrowserProps } from './components/file-browser'
+export {
+	audioPreviewer,
+	defaultFileBrowserEditors,
+	defaultFileBrowserPreviewers,
+	htmlPreviewer,
+	imagePreviewer,
+	pdfPreviewer,
+	textEditor,
+	textPreviewer,
+	videoPreviewer,
+	type FileBrowserEditor,
+	type FileBrowserEditorProps,
+	type FileBrowserFileContent,
+	type FileBrowserPreviewer,
+	type FileBrowserPreviewerProps
+} from './components/file-plugins'
+export {
+	FILE_BROWSER_TEXT_EXTENSIONS,
+	getFileCategory,
+	getFileExtension,
+	getFileTypeLabel,
+	isTextFile,
+	type FileBrowserFileCategory
+} from './components/file-types'
 export type { FileBrowserUploadPolicy, FileBrowserUploadRejection } from './components/file-browser'
 export {
 	FileBrowserProvider,

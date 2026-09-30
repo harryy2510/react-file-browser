@@ -1,8 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileBrowser, FileBrowserAdapterError, FileBrowserProvider } from '@harryy/react-file-browser'
+import {
+	FileBrowser,
+	FileBrowserAdapterError,
+	FileBrowserProvider,
+	defaultFileBrowserEditors,
+	defaultFileBrowserPreviewers
+} from '@harryy/react-file-browser'
 import type { FileBrowserAdapter, FileBrowserProps, FileNode } from '@harryy/react-file-browser'
 import { InMemoryFileBrowserAdapter } from '@harryy/react-file-browser/adapters/in-memory'
+import { codeEditor, codePreviewer, jsonEditor, markupEditor } from '@harryy/react-file-browser/plugins/code'
+import { csvEditor, csvPreviewer } from '@harryy/react-file-browser/plugins/csv'
+import { docxPreviewer } from '@harryy/react-file-browser/plugins/docx'
+import { markdownEditor, markdownPreviewer } from '@harryy/react-file-browser/plugins/markdown'
+import { xlsxEditor, xlsxPreviewer } from '@harryy/react-file-browser/plugins/xlsx'
 import { getFileBrowserDensityAttributes } from '@harryy/react-file-browser/theme'
+import clipUrl from './samples/clip.webm?url'
+// ?raw keeps the file byte-for-byte; fetching it through the dev server would inject Vite's HMR scripts.
+import pageHtml from './samples/page.html?raw'
+import photoUrl from './samples/photo.jpg?url'
+import toneUrl from './samples/tone.ogg?url'
 
 type DemoMode = {
 	id: 'full' | 'readonly' | 'minimal' | 'policy' | 'compact' | 'empty' | 'denied'
@@ -49,6 +65,18 @@ const DEMO_MODES: DemoMode[] = [
 ]
 
 const demoFile = (name: string, contents: string, type: string) => new File([contents], name, { type })
+
+// Real sample media so image, video, audio and HTML previews and editors have something to show.
+const SAMPLE_MEDIA = [
+	{ path: '/media/photo.jpg', url: photoUrl, type: 'image/jpeg' },
+	{ path: '/media/clip.webm', url: clipUrl, type: 'video/webm' },
+	{ path: '/media/tone.ogg', url: toneUrl, type: 'audio/ogg' }
+]
+
+async function sampleFile(url: string, path: string, type: string) {
+	const blob = await (await fetch(url)).blob()
+	return new File([blob], path.slice(path.lastIndexOf('/') + 1), { type })
+}
 
 export function App() {
 	const fullAdapter = useMemo(
@@ -160,6 +188,9 @@ export function App() {
 							allowClientZipFallback={mode !== 'minimal'}
 							adapter={adapter}
 							density={density}
+							editors={editors}
+							isItemReadOnly={(item) => item.path === '/docs/quarterly-report.pdf'}
+							previewers={previewers}
 							emptyState={
 								mode === 'empty'
 									? {
@@ -186,6 +217,25 @@ export function App() {
 	)
 }
 
+// Plugins go ahead of the browser-native defaults; the first match wins.
+const previewers = [
+	markdownPreviewer,
+	csvPreviewer,
+	xlsxPreviewer,
+	docxPreviewer,
+	codePreviewer,
+	...defaultFileBrowserPreviewers
+]
+const editors = [
+	csvEditor,
+	xlsxEditor,
+	markdownEditor,
+	markupEditor,
+	jsonEditor,
+	codeEditor,
+	...defaultFileBrowserEditors
+]
+
 async function seedAdapter(adapter: InMemoryFileBrowserAdapter) {
 	if (!adapter.createFolder) {
 		await adapter.upload('/quarterly-report.pdf', demoFile('quarterly-report.pdf', 'PDF', 'application/pdf'))
@@ -201,9 +251,26 @@ async function seedAdapter(adapter: InMemoryFileBrowserAdapter) {
 	await adapter.createFolder('/campaigns/q3-launch')
 	await adapter.upload('/docs/quarterly-report.pdf', demoFile('quarterly-report.pdf', 'PDF', 'application/pdf'))
 	await adapter.upload('/docs/release-notes.md', demoFile('release-notes.md', '# Release notes', 'text/markdown'))
-	await adapter.upload('/hero-banner.jpg', demoFile('hero-banner.jpg', 'image', 'image/jpeg'))
-	await adapter.upload('/assets/brand/logo.svg', demoFile('logo.svg', '<svg />', 'image/svg+xml'))
+	await adapter.upload('/hero-banner.jpg', await sampleFile(photoUrl, '/hero-banner.jpg', 'image/jpeg'))
+	await adapter.upload(
+		'/assets/brand/logo.svg',
+		demoFile(
+			'logo.svg',
+			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="24" fill="#6d5dfc"/><path d="M36 64l16 16 32-40" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+			'image/svg+xml'
+		)
+	)
+	await adapter.createFolder('/media')
+	await adapter.upload('/docs/page.html', demoFile('page.html', pageHtml, 'text/html'))
+	for (const sample of SAMPLE_MEDIA) {
+		await adapter.upload(sample.path, await sampleFile(sample.url, sample.path, sample.type))
+	}
 	await adapter.upload('/campaigns/q3-launch/brief.txt', demoFile('brief.txt', 'Launch brief', 'text/plain'))
+	await adapter.upload('/docs/budget.csv', demoFile('budget.csv', 'item,amount\nAds,1200\nEvents,800\n', 'text/csv'))
+	await adapter.upload(
+		'/docs/config.json',
+		demoFile('config.json', '{"launch": "Q3", "channels": 4}', 'application/json')
+	)
 }
 
 function createAccessDeniedAdapter(): FileBrowserAdapter {

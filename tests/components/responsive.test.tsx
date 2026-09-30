@@ -65,6 +65,9 @@ async function longPress(name: string) {
 	vi.useRealTimers()
 }
 
+const selectedItem = () => document.querySelector('[data-fb-path][aria-selected="true"]')
+const openFileView = () => document.querySelector('[data-fb-file-view]')
+
 describe('responsive file browser', () => {
 	test('uses its container width, supports live resizing, and disconnects its observer', async () => {
 		const { container, unmount } = await setup()
@@ -73,10 +76,8 @@ describe('responsive file browser', () => {
 		expect(screen.queryByRole('button', { name: 'New folder' })).not.toBeInTheDocument()
 		act(() => resize(800))
 		expect(screen.getByRole('button', { name: 'New folder' })).toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
-		expect(screen.queryByRole('complementary', { name: 'Details' })).not.toBeInTheDocument()
 		act(() => resize(1100))
-		expect(screen.getByRole('complementary', { name: 'Details' })).toBeInTheDocument()
+		expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
 		act(() => resize(639))
 		expect(screen.getByRole('button', { name: 'Browser options' })).toBeInTheDocument()
 		unmount()
@@ -87,7 +88,7 @@ describe('responsive file browser', () => {
 		const { user } = await setup()
 		if (view === 'list') await switchToList(user)
 		await user.click(screen.getByRole('button', { name: 'notes.txt' }))
-		expect(screen.getByRole('dialog', { name: 'Preview notes.txt' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'notes.txt' })).toBeInTheDocument()
 		await user.keyboard('{Escape}')
 		await user.click(screen.getByRole('button', { name: 'assets' }))
 		await screen.findByText('This folder is empty')
@@ -100,14 +101,14 @@ describe('responsive file browser', () => {
 		const { user } = await setup()
 		if (view === 'list') await switchToList(user)
 		await longPress('notes.txt')
-		expect(screen.queryByRole('dialog', { name: /Preview/ })).not.toBeInTheDocument()
-		expect(screen.getByRole('button', { name: 'Select notes.txt' })).toHaveAttribute('aria-pressed', 'true')
+		expect(openFileView()).not.toBeInTheDocument()
+		expect(screen.getByRole('checkbox', { name: 'Select notes.txt' })).toHaveAttribute('aria-checked', 'true')
 		await user.click(screen.getByRole('button', { name: 'report.txt' }))
-		expect(screen.getByRole('button', { name: 'Select report.txt' })).toHaveAttribute('aria-pressed', 'true')
-		await user.click(screen.getByRole('button', { name: 'Select notes.txt' }))
-		expect(screen.getByRole('button', { name: 'Select notes.txt' })).toHaveAttribute('aria-pressed', 'false')
+		expect(screen.getByRole('checkbox', { name: 'Select report.txt' })).toHaveAttribute('aria-checked', 'true')
+		await user.click(screen.getByRole('checkbox', { name: 'Select notes.txt' }))
+		expect(screen.getByRole('checkbox', { name: 'Select notes.txt' })).toHaveAttribute('aria-checked', 'false')
 		await user.click(screen.getByRole('button', { name: 'Exit selection' }))
-		expect(screen.queryByRole('button', { name: 'Select report.txt' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('checkbox', { name: 'Select report.txt' })).not.toBeInTheDocument()
 	})
 
 	test.each(['touchMove', 'touchCancel', 'touchEnd'])('cancels a long press on %s', async (event) => {
@@ -139,17 +140,17 @@ describe('responsive file browser', () => {
 		vi.useRealTimers()
 		await user.click(screen.getByRole('button', { name: 'Exit selection' }))
 		await user.click(button)
-		expect(screen.getByRole('dialog', { name: 'Preview notes.txt' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'notes.txt' })).toBeInTheDocument()
 	})
 
 	test('lets keyboard users toggle mobile checkboxes without opening a preview', async () => {
 		const { user } = await setup()
 		await longPress('notes.txt')
-		const checkbox = screen.getByRole('button', { name: 'Select notes.txt' })
+		const checkbox = screen.getByRole('checkbox', { name: 'Select notes.txt' })
 		checkbox.focus()
 		await user.keyboard('{Enter}')
-		expect(checkbox).toHaveAttribute('aria-pressed', 'false')
-		expect(screen.queryByRole('dialog', { name: /Preview/ })).not.toBeInTheDocument()
+		expect(checkbox).toHaveAttribute('aria-checked', 'false')
+		expect(openFileView()).not.toBeInTheDocument()
 		expect(screen.getByLabelText('Upload files')).toBeInTheDocument()
 	})
 
@@ -159,7 +160,7 @@ describe('responsive file browser', () => {
 		screen.getByRole('button', { name: 'New folder' }).focus()
 		await user.keyboard('{Enter}')
 		expect(screen.getByRole('dialog', { name: 'New folder' })).toBeInTheDocument()
-		expect(screen.queryByRole('dialog', { name: /Preview/ })).not.toBeInTheDocument()
+		expect(openFileView()).not.toBeInTheDocument()
 	})
 
 	test('keeps mobile mutation actions gated when optional adapter methods are absent', async () => {
@@ -182,10 +183,10 @@ describe('responsive file browser', () => {
 	test('keeps a selected item unchanged while navigating a desktop context menu', async () => {
 		const { user } = await setup(1100)
 		fireEvent.contextMenu(screen.getByRole('button', { name: 'notes.txt' }), { clientX: 1000, clientY: 750 })
-		expect(screen.getByRole('menuitem', { name: 'Rename' })).toHaveFocus()
+		expect(screen.getByRole('menuitem', { name: 'Preview' })).toHaveFocus()
 		await user.keyboard('{ArrowDown}')
-		expect(screen.getByRole('menuitem', { name: 'Move' })).toHaveFocus()
-		expect(screen.getByRole('complementary', { name: 'Details' })).toHaveTextContent('notes.txt')
+		expect(screen.getByRole('menuitem', { name: 'Edit' })).toHaveFocus()
+		expect(selectedItem()).toHaveTextContent('notes.txt')
 		await user.keyboard('{Escape}')
 		expect(screen.queryByRole('menu', { name: 'Item actions' })).not.toBeInTheDocument()
 	})
@@ -201,32 +202,6 @@ describe('responsive file browser', () => {
 		await user.click(screen.getByRole('button', { name: 'Actions' }))
 		expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
-	})
-
-	test('keeps custom details available in a sheet and does not clear selection on Escape', async () => {
-		const { user } = await setup(375, {
-			renderDetailsContent: (_item, content) => (
-				<>
-					{content}
-					<p>Host detail</p>
-				</>
-			)
-		})
-		await longPress('notes.txt')
-		await user.click(screen.getByRole('button', { name: 'Details' }))
-		expect(screen.getByRole('dialog', { name: 'Details' })).toHaveTextContent('Host detail')
-		await user.keyboard('{Escape}')
-		expect(screen.getByRole('button', { name: 'Select notes.txt' })).toHaveAttribute('aria-pressed', 'true')
-		expect(screen.getByRole('button', { name: 'Details' })).toHaveFocus()
-	})
-
-	test('does not expose mobile details when the host hides the panel', async () => {
-		const { user } = await setup(375, { showDetailsPanel: false })
-		await longPress('notes.txt')
-		expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
-		await user.click(screen.getByRole('button', { name: 'Exit selection' }))
-		await user.click(screen.getByRole('button', { name: 'Browser options' }))
-		expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
 	})
 
 	test('preserves capability and read-only gating in narrow controls', async () => {
