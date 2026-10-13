@@ -160,7 +160,7 @@ describe('FileBrowser', () => {
 
 		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('duration-150')
 		expect(screen.getByRole('button', { name: 'Upload' }).className).toContain('motion-reduce:transition-none')
-		expect(screen.getByText('hero-banner.jpg').closest('article')?.className).toContain('duration-200')
+		expect(screen.getByText('hero-banner.jpg').closest('[data-fb-path]')?.className).toContain('duration-200')
 		expect(screen.getByRole('toolbar', { name: 'Selection actions' }).className).toContain('duration-200')
 	})
 
@@ -298,7 +298,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByText('hero-banner.jpg'))
 		await user.click(screen.getByRole('button', { name: 'Copy' }))
 
-		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 1 item')
+		expect(screen.getByRole('status')).toHaveTextContent('Copied 1 item')
 	})
 
 	test('announces folder state and selection count for screen readers', async () => {
@@ -704,6 +704,69 @@ describe('FileBrowser', () => {
 		await waitFor(() => expect(screen.getByRole('row', { name: /assets/ })).toHaveFocus())
 	})
 
+	test.each(['grid', 'list'] as const)('gives the %s view one Tab stop that follows the arrows', async (view) => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser initialView={view} adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+		const collection = screen.getByRole(view === 'grid' ? 'grid' : 'table', { name: 'Files' })
+		const tabStops = () =>
+			Array.from(collection.querySelectorAll<HTMLElement>('tbody button, tbody [tabindex], [role="row"] *')).filter(
+				(element) => element.tabIndex >= 0
+			)
+		const items = () => Array.from(collection.querySelectorAll<HTMLElement>('[data-fb-path]'))
+
+		expect(tabStops()).toEqual([
+			items()[0],
+			within(items()[0]).getByRole('button', { name: 'More actions for assets' })
+		])
+
+		await user.keyboard('{End}')
+		await waitFor(() => expect(items()[2]).toHaveFocus())
+		expect(tabStops()).toEqual([
+			items()[2],
+			within(items()[2]).getByRole('button', { name: 'More actions for quarterly-report.pdf' })
+		])
+	})
+
+	test('puts each grid tile in a row of a multiselectable grid', async () => {
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser initialView="grid" adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		const grid = screen.getByRole('grid', { name: 'Files' })
+		expect(grid).toHaveAttribute('aria-multiselectable', 'true')
+		const rows = within(grid).getAllByRole('row')
+		expect(rows).toHaveLength(3)
+		for (const row of rows) {
+			expect(row.parentElement).toBe(grid)
+			expect(within(row).getAllByRole('gridcell')).toHaveLength(1)
+		}
+	})
+
+	test.each(['grid', 'list'] as const)('toggles with Space and opens with Enter in the %s view', async (view) => {
+		const user = userEvent.setup()
+		const adapter = await adapterWithFiles()
+
+		render(<FileBrowser initialView={view} adapter={adapter} />)
+		await screen.findByText('hero-banner.jpg')
+
+		await user.keyboard('{ArrowDown}{ArrowDown}')
+		expect(selectedItem()).toHaveTextContent('hero-banner.jpg')
+		await user.keyboard(' ')
+		expect(selectedItem()).toBeNull()
+		expect(document.activeElement).toHaveAttribute('data-fb-path', '/hero-banner.jpg')
+		await user.keyboard(' ')
+		expect(selectedItem()).toHaveTextContent('hero-banner.jpg')
+
+		await user.keyboard('{Shift>}{ArrowDown}{/Shift}')
+		expect(document.querySelectorAll('[data-fb-path][aria-selected="true"]')).toHaveLength(2)
+		await user.keyboard('{Enter}')
+		expect(openFileView()).toHaveTextContent('quarterly-report.pdf')
+	})
+
 	test('moves selected items through a destination picker', async () => {
 		const user = userEvent.setup()
 		const adapter = await adapterWithFiles()
@@ -731,6 +794,7 @@ describe('FileBrowser', () => {
 		expect((await adapter.list('/assets/archive')).items.map((item) => item.path)).toContain(
 			'/assets/archive/hero-banner.jpg'
 		)
+		expect(screen.getByRole('status')).toHaveTextContent('Moved 1 item to archive.')
 	})
 
 	test('moves dragged items onto folders when move is supported', async () => {
@@ -849,7 +913,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByRole('menuitem', { name: 'Copy path' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg')
-		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied path')
+		expect(screen.getByRole('status')).toHaveTextContent('Copied path')
 	})
 
 	test('keeps the multi-selection when right-clicking a selected item', async () => {
@@ -874,7 +938,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByRole('menuitem', { name: 'Copy paths' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg, /quarterly-report.pdf')
-		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 2 paths')
+		expect(screen.getByRole('status')).toHaveTextContent('Copied 2 paths')
 	})
 
 	test('collapses the selection when right-clicking an unselected item', async () => {
@@ -907,7 +971,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByRole('menuitem', { name: 'Copy path' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg')
-		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied path')
+		expect(screen.getByRole('status')).toHaveTextContent('Copied path')
 	})
 
 	test('copies every selected path from the actions menu', async () => {
@@ -926,7 +990,7 @@ describe('FileBrowser', () => {
 		await user.click(screen.getByRole('menuitem', { name: 'Copy paths' }))
 
 		expect(await navigator.clipboard.readText()).toBe('/hero-banner.jpg, /quarterly-report.pdf')
-		expect(screen.getByRole('status', { name: 'Clipboard status' })).toHaveTextContent('Copied 2 paths')
+		expect(screen.getByRole('status')).toHaveTextContent('Copied 2 paths')
 	})
 
 	test('clears the clipboard notice after five seconds', async () => {
@@ -941,12 +1005,14 @@ describe('FileBrowser', () => {
 		vi.useFakeTimers()
 		try {
 			fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
-			expect(screen.getByRole('status', { name: 'Clipboard status' })).toBeInTheDocument()
+			expect(screen.getByRole('status')).toHaveTextContent('Copied 1 item')
+			expect(screen.getByText('Copied 1 item')).toBeInTheDocument()
 
 			act(() => {
 				vi.advanceTimersByTime(5000)
 			})
-			expect(screen.queryByRole('status', { name: 'Clipboard status' })).not.toBeInTheDocument()
+			expect(screen.getByRole('status')).not.toHaveTextContent('Copied')
+			expect(screen.queryByText('Copied 1 item')).not.toBeInTheDocument()
 		} finally {
 			vi.useRealTimers()
 		}

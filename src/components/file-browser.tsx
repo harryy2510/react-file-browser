@@ -39,7 +39,12 @@ import type {
 	FileBrowserView,
 	UseFileBrowserResult
 } from '../core/use-file-browser'
-import { getFileBrowserDirname, joinFileBrowserPath, normalizeFileBrowserPath } from '../core/path'
+import {
+	getFileBrowserBasename,
+	getFileBrowserDirname,
+	joinFileBrowserPath,
+	normalizeFileBrowserPath
+} from '../core/path'
 import { FileBrowserAdapterError, FileBrowserBulkActionError } from '../core/types'
 import type { FileBrowserAdapter, FileNode } from '../core/types'
 import { collectUploadCandidatesFromDataTransfer, getFileBrowserUploadCandidates } from '../core/upload-drop'
@@ -143,7 +148,7 @@ type MoveDestinationStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 const FILE_BROWSER_DRAG_MIME = 'application/x.react-file-browser.paths'
 const SELECTED_ITEM_DOUBLE_CLICK_WINDOW_MS = 220
-const CLIPBOARD_NOTICE_DURATION_MS = 5000
+const ACTION_NOTICE_DURATION_MS = 5000
 const CONTROL_MOTION =
 	'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none'
 const TOUCH_CONTROL =
@@ -256,9 +261,10 @@ export function FileBrowser<TMetadata = unknown>({
 	const [uploadConflictQueue, setUploadConflictQueue] = useState<UploadConflictQueue | null>(null)
 	const [uploadRejections, setUploadRejections] = useState<FileBrowserUploadRejection[]>([])
 	const [applyUploadResolution, setApplyUploadResolution] = useState(false)
-	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null)
+	const [actionNotice, setActionNotice] = useState<string | null>(null)
 	const [dropActive, setDropActive] = useState(false)
 	const [folderDropTargetPath, setFolderDropTargetPath] = useState<string | null>(null)
+	const [lastFocusedItemPath, setLastFocusedItemPath] = useState<string | null>(null)
 	const [openFile, setOpenFile] = useState<{ item: FileNode<TMetadata>; mode: 'preview' | 'edit' } | null>(null)
 	const fileOpen = openFile !== null
 	const rootRef = useRef<HTMLElement | null>(null)
@@ -301,6 +307,11 @@ export function FileBrowser<TMetadata = unknown>({
 		[isItemReadOnly, readOnly]
 	)
 	const selectionWritable = !readOnly && !browser.selectedItems.some(isLocked)
+	const activeItemPath = getActiveItemPath(browser.filteredItems, [
+		browser.focusedPath,
+		lastFocusedItemPath,
+		browser.selectedPaths.at(-1)
+	])
 	const getEditor = useCallback(
 		(item: FileNode<TMetadata>) => {
 			if (item.kind !== 'file' || isLocked(item)) return undefined
@@ -433,7 +444,7 @@ export function FileBrowser<TMetadata = unknown>({
 				return
 			}
 			browser.copySelection(paths)
-			setClipboardNotice(`Copied ${formatItemCount(paths.length)}`)
+			setActionNotice(`Copied ${formatItemCount(paths.length)}`)
 		},
 		[browser]
 	)
@@ -443,7 +454,7 @@ export function FileBrowser<TMetadata = unknown>({
 				return
 			}
 			browser.cutSelection(paths)
-			setClipboardNotice(`Cut ${formatItemCount(paths.length)}`)
+			setActionNotice(`Cut ${formatItemCount(paths.length)}`)
 		},
 		[browser]
 	)
@@ -452,14 +463,14 @@ export function FileBrowser<TMetadata = unknown>({
 			return
 		}
 		await navigator.clipboard.writeText(paths.join(', '))
-		setClipboardNotice(paths.length === 1 ? 'Copied path' : `Copied ${paths.length} paths`)
+		setActionNotice(paths.length === 1 ? 'Copied path' : `Copied ${paths.length} paths`)
 	}, [])
 	const pasteClipboardInto = useCallback(
 		async (toDir: string) => {
 			const pastedCount = browser.clipboard?.paths.length ?? 0
 			await browser.pasteInto(toDir)
 			if (pastedCount > 0) {
-				setClipboardNotice(`Pasted ${formatItemCount(pastedCount)}`)
+				setActionNotice(`Pasted ${formatItemCount(pastedCount)}`)
 			}
 		},
 		[browser]
@@ -504,6 +515,17 @@ export function FileBrowser<TMetadata = unknown>({
 				const path =
 					event.target instanceof Element ? event.target.closest('[data-fb-path]')?.getAttribute('data-fb-path') : null
 				if (path) browser.toggleSelection(path)
+				return
+			}
+			// Only the item itself: Space and Enter on a control inside it keep their native activation.
+			const focusedItemPath =
+				event.target instanceof Element && event.target.matches('[data-fb-path]')
+					? event.target.getAttribute('data-fb-path')
+					: null
+			if (event.key === ' ' && focusedItemPath) {
+				event.preventDefault()
+				if (event.shiftKey) browser.selectRange(focusedItemPath)
+				else browser.toggleSelection(focusedItemPath)
 				return
 			}
 			if (isKeyboardNavigationKey(event.key)) {
@@ -553,11 +575,15 @@ export function FileBrowser<TMetadata = unknown>({
 					return
 				}
 			}
-			if (event.key === 'Enter' && browser.selectedItems.length === 1) {
-				const item = browser.selectedItems[0]
-				if (item.kind === 'folder') {
+			if (event.key === 'Enter') {
+				const item = focusedItemPath
+					? browser.filteredItems.find((candidate) => candidate.path === focusedItemPath)
+					: browser.selectedItems.length === 1
+						? browser.selectedItems[0]
+						: undefined
+				if (item?.kind === 'folder') {
 					void browser.open(item)
-				} else {
+				} else if (item) {
 					openPreview(item)
 				}
 			}
@@ -607,12 +633,12 @@ export function FileBrowser<TMetadata = unknown>({
 	}, [contextMenu])
 
 	useEffect(() => {
-		if (!clipboardNotice) {
+		if (!actionNotice) {
 			return
 		}
-		const timer = setTimeout(() => setClipboardNotice(null), CLIPBOARD_NOTICE_DURATION_MS)
+		const timer = setTimeout(() => setActionNotice(null), ACTION_NOTICE_DURATION_MS)
 		return () => clearTimeout(timer)
-	}, [clipboardNotice])
+	}, [actionNotice])
 
 	useEffect(() => {
 		for (const upload of transferSnapshot.uploads) {
@@ -757,10 +783,16 @@ export function FileBrowser<TMetadata = unknown>({
 		setMoveDialogOpen(true)
 	}
 
+	function announceMove(count: number, toDir: string) {
+		setActionNotice(`Moved ${formatItemCount(count)} to ${getFileBrowserBasename(toDir) || rootLabel}`)
+	}
+
 	async function moveSelectedItems() {
+		const count = browser.selectedPaths.length
 		try {
 			await browser.moveSelectedTo(moveDestination)
 			setMoveDialogOpen(false)
+			announceMove(count, moveDestination)
 		} catch (error) {
 			if (error instanceof FileBrowserBulkActionError) {
 				setMoveDialogOpen(false)
@@ -833,6 +865,7 @@ export function FileBrowser<TMetadata = unknown>({
 		endItemDrag()
 		try {
 			await browser.movePathsTo(paths, item.path)
+			announceMove(paths.length, item.path)
 		} catch (error) {
 			if (error instanceof FileBrowserBulkActionError) {
 				setBulkFailure(error)
@@ -1202,13 +1235,13 @@ export function FileBrowser<TMetadata = unknown>({
 
 	const openFilePosition = openFile ? previewFiles.findIndex((item) => item.path === openFile.item.path) + 1 : 0
 
-	const clipboardStatus = clipboardNotice ? (
+	// The persistent sr-only status announces the notice; a live region mounted with its text is often skipped.
+	const actionStatus = actionNotice ? (
 		<span
-			aria-label="Clipboard status"
+			aria-hidden="true"
 			className={`shrink-0 whitespace-nowrap rounded-full bg-[var(--fb-accent-soft)] px-3 py-1 text-[var(--fb-font-sm)] font-semibold ${ACCENT_INK} ${CONTROL_MOTION}`}
-			role="status"
 		>
-			{clipboardNotice}
+			{actionNotice}
 		</span>
 	) : null
 
@@ -1405,6 +1438,7 @@ export function FileBrowser<TMetadata = unknown>({
 					selectedCount: browser.selectedPaths.length,
 					status: browser.status
 				})}
+				{actionNotice ? ` ${actionNotice}.` : ''}
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<input
@@ -1479,7 +1513,7 @@ export function FileBrowser<TMetadata = unknown>({
 												rootLabel={rootLabel}
 											/>
 										</div>
-										{clipboardStatus}
+										{actionStatus}
 									</div>
 									{isNarrow ? viewToggle : null}
 									{isNarrow ? (
@@ -1496,7 +1530,7 @@ export function FileBrowser<TMetadata = unknown>({
 									) : null}
 								</>
 							)}
-							{mobileSelection ? clipboardStatus : null}
+							{mobileSelection ? actionStatus : null}
 							{!mobileSelection ? (
 								<div className="flex w-full min-w-0 flex-wrap items-center gap-3">
 									<label className={`relative block min-w-0 ${isNarrow ? 'w-full' : 'min-w-[180px] flex-1'}`}>
@@ -1534,6 +1568,10 @@ export function FileBrowser<TMetadata = unknown>({
 							className={`relative min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--fb-bg)] px-[var(--fb-pad)] pb-[var(--fb-pad)] pt-1 ${isNarrow ? 'px-3 pt-3' : ''} ${isNarrow && !readOnly && !mobileSelection ? 'pb-[calc(var(--fb-gap)*20)]' : ''} ${SURFACE_MOTION}`}
 							onClick={clearSelectionFromEmptySurface}
 							onContextMenu={openEmptyContextMenu}
+							onFocus={(event) => {
+								const path = event.target.closest('[data-fb-path]')?.getAttribute('data-fb-path')
+								if (path) setLastFocusedItemPath(path)
+							}}
 						>
 							{browser.status === 'loading' && browser.items.length === 0 ? (
 								<SkeletonGrid rootLabel={rootLabel} />
@@ -1551,6 +1589,7 @@ export function FileBrowser<TMetadata = unknown>({
 								/>
 							) : browser.view === 'grid' ? (
 								<FileGrid
+									activePath={activeItemPath}
 									browser={browser}
 									canMove={!readOnly && browser.capabilities.move}
 									folderDropTargetPath={folderDropTargetPath}
@@ -1584,6 +1623,7 @@ export function FileBrowser<TMetadata = unknown>({
 								/>
 							) : (
 								<FileTable
+									activePath={activeItemPath}
 									browser={browser}
 									canMove={!readOnly && browser.capabilities.move}
 									folderDropTargetPath={folderDropTargetPath}
@@ -2093,6 +2133,7 @@ function isAllowedUploadType(file: File, allowedMimeTypes: string[]) {
 }
 
 function FileGrid<TMetadata>({
+	activePath,
 	browser,
 	canMove,
 	folderDropTargetPath,
@@ -2121,6 +2162,7 @@ function FileGrid<TMetadata>({
 	renderItemMeta,
 	rootLabel
 }: {
+	activePath: string | null
 	browser: BrowserLike<TMetadata>
 	canMove: boolean
 	folderDropTargetPath: string | null
@@ -2184,6 +2226,7 @@ function FileGrid<TMetadata>({
 			) : null}
 			<div
 				aria-label={rootLabel}
+				aria-multiselectable="true"
 				className="relative grid min-h-full min-w-0 touch-pan-y content-start grid-cols-[repeat(2,minmax(0,1fr))] gap-[calc(var(--fb-grid-gap)-4px)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))] @min-[40rem]/fb:gap-[var(--fb-grid-gap)]"
 				onClick={(event) => {
 					if (!selectionMode && event.target === event.currentTarget && !hasSelectionModifier(event)) {
@@ -2193,35 +2236,38 @@ function FileGrid<TMetadata>({
 				ref={setGridElement}
 				role="grid"
 			>
+				{/* Each card is its own `display: contents` row, so the tiles stay direct items of the CSS grid. */}
 				{browser.filteredItems.map((item) => (
-					<FileCard
-						canMove={canMove && !isItemReadOnly(item)}
-						onMenu={(anchor) => onItemMenu(item, anchor)}
-						readOnlyItem={isItemReadOnly(item)}
-						dropTarget={folderDropTargetPath === item.path}
-						item={item}
-						key={item.path}
-						onOpen={() => onOpenItem(item)}
-						onContextMenu={(event) => onContextMenu(item, event)}
-						onDragEnd={onDragEnd}
-						onDragStart={(event) => onDragStart(item, event)}
-						onFolderDragOver={(event) => onFolderDragOver(item, event)}
-						onFolderDrop={(event) => onFolderDrop(item, event)}
-						inlineRenameError={inlineRenameError}
-						inlineRenameLabel={inlineRenameLabel}
-						inlineRenameValue={inlineRenameValue}
-						isRenaming={inlineRenameItem?.path === item.path}
-						onInlineRenameCancel={onInlineRenameCancel}
-						onInlineRenameChange={onInlineRenameChange}
-						onInlineRenameCommit={onInlineRenameCommit}
-						onSelect={(event) => onSelectItem(item.path, event)}
-						onTouchMenu={() => onTouchMenu(item)}
-						narrow={narrow}
-						selectionMode={selectionMode}
-						onToggle={() => onToggleItem(item.path)}
-						renderItemMeta={renderItemMeta}
-						selected={selectedPaths.includes(item.path)}
-					/>
+					<div className="contents" key={item.path} role="row">
+						<FileCard
+							active={item.path === activePath}
+							canMove={canMove && !isItemReadOnly(item)}
+							onMenu={(anchor) => onItemMenu(item, anchor)}
+							readOnlyItem={isItemReadOnly(item)}
+							dropTarget={folderDropTargetPath === item.path}
+							item={item}
+							onOpen={() => onOpenItem(item)}
+							onContextMenu={(event) => onContextMenu(item, event)}
+							onDragEnd={onDragEnd}
+							onDragStart={(event) => onDragStart(item, event)}
+							onFolderDragOver={(event) => onFolderDragOver(item, event)}
+							onFolderDrop={(event) => onFolderDrop(item, event)}
+							inlineRenameError={inlineRenameError}
+							inlineRenameLabel={inlineRenameLabel}
+							inlineRenameValue={inlineRenameValue}
+							isRenaming={inlineRenameItem?.path === item.path}
+							onInlineRenameCancel={onInlineRenameCancel}
+							onInlineRenameChange={onInlineRenameChange}
+							onInlineRenameCommit={onInlineRenameCommit}
+							onSelect={(event) => onSelectItem(item.path, event)}
+							onTouchMenu={() => onTouchMenu(item)}
+							narrow={narrow}
+							selectionMode={selectionMode}
+							onToggle={() => onToggleItem(item.path)}
+							renderItemMeta={renderItemMeta}
+							selected={selectedPaths.includes(item.path)}
+						/>
+					</div>
 				))}
 			</div>
 		</>
@@ -2229,6 +2275,7 @@ function FileGrid<TMetadata>({
 }
 
 function FileCard<TMetadata>({
+	active,
 	canMove,
 	dropTarget,
 	inlineRenameError,
@@ -2255,6 +2302,7 @@ function FileCard<TMetadata>({
 	onToggle,
 	renderItemMeta
 }: {
+	active: boolean
 	canMove: boolean
 	dropTarget: boolean
 	inlineRenameError: string | null
@@ -2284,7 +2332,7 @@ function FileCard<TMetadata>({
 	const longPress = useLongPress(onTouchMenu)
 
 	return (
-		<article
+		<div
 			aria-selected={selected}
 			data-fb-drop-target={dropTarget ? 'true' : undefined}
 			data-fb-path={item.path}
@@ -2306,7 +2354,7 @@ function FileCard<TMetadata>({
 			onDrop={item.kind === 'folder' ? onFolderDrop : undefined}
 			{...longPress}
 			role="gridcell"
-			tabIndex={0}
+			tabIndex={active ? 0 : -1}
 		>
 			{selectionMode ? (
 				<button
@@ -2319,6 +2367,7 @@ function FileCard<TMetadata>({
 						event.stopPropagation()
 						onToggle()
 					}}
+					tabIndex={-1}
 					type="button"
 				>
 					<SelectionMark selected={selected} visibleOnHover={false} />
@@ -2335,6 +2384,7 @@ function FileCard<TMetadata>({
 					narrow={narrow}
 					onOpen={(_, anchor) => onMenu(anchor)}
 					selected={selected}
+					tabIndex={active ? 0 : -1}
 				/>
 			</span>
 			<FileTypeTile item={item} size="md" />
@@ -2355,6 +2405,7 @@ function FileCard<TMetadata>({
 						event.stopPropagation()
 						onSelect(event)
 					}}
+					tabIndex={-1}
 					type="button"
 				>
 					{item.name}
@@ -2370,7 +2421,7 @@ function FileCard<TMetadata>({
 				{formatShortDate(item.modifiedAt) ? <span>· {formatShortDate(item.modifiedAt)}</span> : null}
 			</div>
 			<ItemMeta item={item} renderItemMeta={renderItemMeta} view="grid" />
-		</article>
+		</div>
 	)
 }
 
@@ -2447,6 +2498,7 @@ function InlineRenameInput<TMetadata>({
 }
 
 function FileTable<TMetadata>({
+	activePath,
 	browser,
 	canMove,
 	folderDropTargetPath,
@@ -2474,6 +2526,7 @@ function FileTable<TMetadata>({
 	renderItemMeta,
 	rootLabel
 }: {
+	activePath: string | null
 	browser: BrowserLike<TMetadata>
 	canMove: boolean
 	folderDropTargetPath: string | null
@@ -2577,6 +2630,7 @@ function FileTable<TMetadata>({
 					const isSelected = selectedPaths.includes(item.path)
 					const isDropTarget = folderDropTargetPath === item.path
 					const itemReadOnly = isItemReadOnly(item)
+					const isActive = item.path === activePath
 					return (
 						<TouchRow
 							aria-selected={isSelected}
@@ -2600,7 +2654,7 @@ function FileTable<TMetadata>({
 							onDragStart={(event) => onDragStart(item, event)}
 							onDrop={(event) => onFolderDrop(item, event)}
 							onDoubleClick={() => onOpenItem(item)}
-							tabIndex={0}
+							tabIndex={isActive ? 0 : -1}
 						>
 							{showCheckboxes ? (
 								<td className={`${bodyCell} ${checkboxCell}`}>
@@ -2615,6 +2669,7 @@ function FileTable<TMetadata>({
 										}}
 										onDoubleClick={(event) => event.stopPropagation()}
 										role="checkbox"
+										tabIndex={-1}
 										type="button"
 									>
 										<SelectionMark selected={isSelected} visibleOnHover={false} />
@@ -2643,6 +2698,7 @@ function FileTable<TMetadata>({
 														event.stopPropagation()
 														onSelectItem(item.path, event)
 													}}
+													tabIndex={-1}
 													type="button"
 												>
 													{item.name}
@@ -2671,7 +2727,13 @@ function FileTable<TMetadata>({
 								</td>
 							) : null}
 							<td className={`${bodyCell} pl-0 text-right`}>
-								<ItemMenuButton item={item} narrow={narrow} onOpen={onItemMenu} selected={isSelected} />
+								<ItemMenuButton
+									item={item}
+									narrow={narrow}
+									onOpen={onItemMenu}
+									selected={isSelected}
+									tabIndex={isActive ? 0 : -1}
+								/>
 							</td>
 						</TouchRow>
 					)
@@ -2686,12 +2748,14 @@ function ItemMenuButton<TMetadata>({
 	narrow,
 	onOpen,
 	selected,
+	tabIndex,
 	className = ''
 }: {
 	item: FileNode<TMetadata>
 	narrow: boolean
 	onOpen: (item: FileNode<TMetadata>, anchor: HTMLElement) => void
 	selected: boolean
+	tabIndex: number
 	className?: string
 }) {
 	return (
@@ -2709,6 +2773,7 @@ function ItemMenuButton<TMetadata>({
 				onOpen(item, event.currentTarget)
 			}}
 			onDoubleClick={(event) => event.stopPropagation()}
+			tabIndex={tabIndex}
 			type="button"
 		>
 			<MoreHorizontal aria-hidden="true" className="size-4" />
@@ -3483,12 +3548,14 @@ function getFallbackBreadcrumbs(crumbs: BreadcrumbCrumb[], narrow: boolean): Vis
 function SkeletonGrid({ rootLabel }: { rootLabel: string }) {
 	return (
 		<div
+			aria-busy="true"
 			aria-label={rootLabel}
 			className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-[calc(var(--fb-grid-gap)-4px)] @min-[40rem]/fb:grid-cols-[repeat(auto-fill,minmax(min(100%,var(--fb-card-min)),1fr))] @min-[40rem]/fb:gap-[var(--fb-grid-gap)]"
 			role="grid"
 		>
 			{Array.from({ length: 10 }, (_, index) => (
 				<div
+					aria-hidden="true"
 					className={`flex min-h-[var(--fb-card-minh)] animate-pulse flex-col gap-2 rounded-[calc(var(--fb-radius)+2px)] border border-[var(--fb-border)] bg-[var(--fb-surface)] p-[var(--fb-card-pad)] motion-reduce:animate-none ${SURFACE_MOTION}`}
 					key={index}
 				>
@@ -3623,6 +3690,12 @@ function getNextKeyboardIndex(key: string, currentIndex: number, length: number)
 		return Math.max(0, currentIndex - 1)
 	}
 	return Math.min(length - 1, currentIndex + 1)
+}
+
+/** The collection's single Tab stop: the first candidate still visible, else the first item. */
+function getActiveItemPath<TMetadata>(items: FileNode<TMetadata>[], candidates: Array<string | null | undefined>) {
+	const visiblePaths = new Set(items.map((item) => item.path))
+	return candidates.find((path) => path && visiblePaths.has(path)) ?? items.at(0)?.path ?? null
 }
 
 function escapeAttributeSelector(value: string) {
