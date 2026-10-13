@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/harryy2510/react-file-browser/compare/v1.5.0...v1.5.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **path:** update exports in index.ts ([1763c6e](https://github.com/harryy2510/react-file-browser/commit/1763c6e516ae09d350a1d2f4d9e9112e4fff50d2))
+
 # [1.5.0](https://github.com/harryy2510/react-file-browser/compare/v1.4.0...v1.5.0) (2026-09-30)
 
 
