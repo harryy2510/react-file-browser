@@ -11,6 +11,7 @@ export {
 	type FileNodeKind,
 	type MultipartUploadPart
 } from './core/types'
+
 export {
 	ROOT_PATH,
 	getFileBrowserBasename,
@@ -20,7 +21,9 @@ export {
 	normalizeFileBrowserPath,
 	replaceFileBrowserPathPrefix
 } from './core/path'
+
 export { FILE_BROWSER_THEME_CONTRACT, getFileBrowserDensityAttributes, type FileBrowserDensity } from './theme'
+
 export {
 	useFileBrowser,
 	type FileBrowserCapabilities,
@@ -34,7 +37,9 @@ export {
 	type UseFileBrowserOptions,
 	type UseFileBrowserResult
 } from './core/use-file-browser'
+
 export { FileBrowser, type FileBrowserProps } from './components/file-browser'
+
 export {
 	audioPreviewer,
 	defaultFileBrowserEditors,
@@ -51,6 +56,7 @@ export {
 	type FileBrowserPreviewer,
 	type FileBrowserPreviewerProps
 } from './components/file-plugins'
+
 export {
 	FILE_BROWSER_TEXT_EXTENSIONS,
 	getFileCategory,
@@ -60,12 +66,14 @@ export {
 	type FileBrowserFileCategory
 } from './components/file-types'
 export type { FileBrowserUploadPolicy, FileBrowserUploadRejection } from './components/file-browser'
+
 export {
 	FileBrowserProvider,
 	useTransferSnapshot,
 	useTransfers,
 	type FileBrowserProviderProps
 } from './transfers/file-browser-provider'
+
 export {
 	TransferManager,
 	type BulkDownloadJob,
